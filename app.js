@@ -14,6 +14,9 @@
   var STATUS = { open: "Open", in_progress: "In progress", blocked: "Blocked", done: "Done", dropped: "Dropped" };
   var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   var OWNER = { "PHLUX": "You", "Virtual assistant": "Assistant", "GovCon OS": "GovCon OS", "Not assigned": "Not assigned" };
+  // The commercial recommendation (file 0010) and its chip color.
+  var REC_CLASS = { pursue: "High", investigate: "Medium", watch: "Info", pass: "Muted" };
+  var POSITION_CLASS = { Strong: "High", Some: "Medium", Weak: "Low", "Not known": "Muted" };
   var CATEGORIES = ["Documents and access", "Deadline verification", "Qualification research", "Proposal preparation", "Follow-up and coordination"];
 
   function $(sel, el) { return (el || document).querySelector(sel); }
@@ -57,12 +60,41 @@
     } catch (e) { return d.toISOString().slice(0, 16).replace("T", " ") + " UTC"; }
   }
   function setMain(html) { $("#main").innerHTML = html; }
-  // These screens read answers added by database file 0008 as joined with file 0009 (Waiting on the government).
-  // Without it, say so instead of showing a half-empty page.
+  // These screens read answers added by database file 0010 (profit-first pursuit intelligence), which runs after file
+  // 0008 as joined with file 0009. Without it, say so instead of showing a half-empty page.
   function old0008() {
-    setMain('<div class="panel"><h2>One step left</h2><p>These screens need database file 0008, the version that runs after 0009 ' +
-      "(CAPTURE_INTEL_0008_after_0009_run_in_Body_Ops_Capture_Intel.sql). Run it in the SQL Editor of the Body Ops Capture Intel project, " +
+    setMain('<div class="panel"><h2>One step left</h2><p>These screens need database file 0010 ' +
+      "(CAPTURE_INTEL_0010_run_in_Body_Ops_Capture_Intel.sql). Run it in the SQL Editor of the Body Ops Capture Intel project, " +
       "then reload this page.</p></div>");
+  }
+  function recChip(p) { return p ? chip(p.label, REC_CLASS[p.recommendation] || "Muted") : ""; }
+  function ownerOf(p, v) {
+    var o = p ? p.owner : (v || {}).owner;
+    return ownerText(o) + (p && p.owner_note ? '<div class="subtle">' + esc(p.owner_note) + "</div>" : "");
+  }
+  function pDeadline(p) {
+    if (!p || !p.deadline_at) return '<span class="subtle">None due</span>';
+    return '<div class="when-strong">' + esc(shortDate(p.deadline_at, p.deadline_has_time === false)) + '</div><div class="subtle">' + esc(p.deadline_what || "") + "</div>";
+  }
+  // The commercial view of one item, for its details (evidence stays on expansion).
+  function commercialHtml(p, rules) {
+    if (!p) return "";
+    var pass = p.recommendation === "pass";
+    return '<h3>Commercial view</h3><dl class="kv">' +
+      "<dt>Recommendation</dt><dd>" + recChip(p) + " " + esc(p.reason) + "</dd>" +
+      (p.next_action ? "<dt>Next action</dt><dd>" + esc(p.next_action) + "</dd>" : "") +
+      (pass ? "" : "<dt>Who pays</dt><dd>" + esc(p.payer) + "</dd>") +
+      "<dt>Business upside</dt><dd>" + esc(p.upside) + ". " + esc(p.share) + "</dd>" +
+      (pass ? "" : "<dt>Profit</dt><dd>" + esc(p.profit) + "</dd>") +
+      (!pass && p.costs ? "<dt>Costs to plan for</dt><dd>On record: " + esc(p.costs) + ".</dd>" : "") +
+      (pass ? "" : "<dt>Our position</dt><dd>" + chip(p.advantage, POSITION_CLASS[p.advantage] || "Muted") + (p.advantage_why ? " " + esc(p.advantage_why) : "") + "</dd>") +
+      (pass ? "" : "<dt>Effort versus return</dt><dd>" + (p.effort_flag ? chip("Big effort for uncertain revenue", "Low") + " " : "") + esc(p.effort) + "</dd>") +
+      (p.strategic && !pass ? "<dt>Strategic value</dt><dd>" + esc(p.strategic) + "</dd>" : "") +
+      "<dt>Decision history</dt><dd>" + (p.history_incomplete ? chip("History incomplete", "Low") + " " : "") + esc(p.history) + "</dd>" +
+      (p.change_text ? "<dt>Changes</dt><dd>" + (p.change_check === "material" ? chip("Verified material change", "Medium") + " " : "") + esc(p.change_text) + "</dd>" : "") +
+      "<dt>What the copy cannot see</dt><dd>" + esc(p.snapshot) + "</dd></dl>" +
+      (rules ? rule(rules.recommendation, "How the recommendation is chosen") + rule(rules.upside, "How the upside is shown") +
+        rule(rules.position, "How our position is rated") + rule(rules.changes, "How changes since a no-go are checked") : "");
   }
   function fail(err) {
     var m = err && (err.message || err.error_description || err);
@@ -208,52 +240,53 @@
     if (needsPhlux()) return;
     rpc("ci_home").then(function (h) {
       if (!h) { setMain('<div class="panel">Nothing to show yet. A copy has to be loaded first.</div>'); return; }
-      if (!h.views_version) { old0008(); return; }
-      var html = '<h1>Today</h1><p class="lede">Built ' + esc(h.built_at_la) + " from the copy shown above, with the decisions and task updates saved here. Times are Los Angeles time.</p>";
+      if (!h.views_version || String(h.views_version).indexOf("0010") !== 0) { old0008(); return; }
+      var html = '<h1>Today</h1><p class="lede">Built ' + esc(h.built_at_la) + " from the copy shown above, with the decisions and task updates saved here. " +
+        "Value first, urgency second, administrative steps last. Times are Los Angeles time.</p>";
 
-      // A. priorities
+      // A. priorities: at most three, value first, in the six columns
       var pri = h.priorities || [];
-      var body = pri.length ? '<ol class="pri">' + pri.map(function (p, n) {
-        var items = p.items || [];
-        var sub = items.length > 1 ? '<ul class="pri-items">' + items.map(function (x) {
-          var next = afterGo(x.next_action);
-          return "<li><b>" + esc(x.title) + "</b> <span class=\"num\">" + esc(x.number) + "</span><div class=\"subtle\">" + esc(x.deadline_what || "") + " " +
-            esc(x.deadline_words || "") + "</div>" + (next ? "<div>After a go: " + esc(clip(next, 170)) + "</div>" : "") + "</li>";
-        }).join("") + "</ul>" : "";
-        var one = items.length === 1 ? items[0] : null;
-        return '<li class="pri-card"><div class="pri-n" aria-hidden="true">' + (n + 1) + '</div><div class="pri-body">' +
-          '<div class="pri-title">' + esc(p.title) + "</div>" +
-          (one ? '<div class="num">' + esc(one.number) + " &middot; " + esc(typeText(one.type)) + "</div>" : "") +
-          '<p class="why">' + esc(p.why) + "</p>" +
-          '<p class="do"><b>What needs to happen:</b> ' + esc(p.action) + "</p>" + sub +
-          '<div class="meta"><span><b>Deadline:</b> ' + esc((p.deadline_what || "") + " " + (p.deadline_words || "none on record")) + "</span><span><b>Owner:</b> " + esc(p.owner) + "</span>" +
-          (one ? '<a href="opportunities.html#' + encodeURIComponent(one.item_key) + '">Open it</a>' : '<a href="decisions.html">Open the decisions</a>') +
-          "</div></div></li>";
-      }).join("") + "</ol>" : '<p class="empty">Nothing needs you today.</p>';
-      if (!h.strategic_waiting) body += '<p class="note-line">No strategic decision is needed today.</p>';
-      if (h.more_on_decisions) body += '<p class="note-line"><a href="decisions.html">' + plural(h.more_on_decisions, "more item waits", "more items wait") + " on the Decisions page</a></p>";
+      var body = pri.length ? '<div class="table-wrap"><table class="rtable pri-table"><thead><tr><th scope="col">Opportunity</th>' +
+        '<th scope="col">Why it is worth our time</th><th scope="col">Business upside</th><th scope="col">Exact next action</th>' +
+        '<th scope="col">Owner</th><th scope="col">Deadline</th></tr></thead><tbody>' + pri.map(function (p, n) {
+          return '<tr class="static"><td class="item" data-label="Opportunity"><div class="pri-line"><span class="pri-n" aria-hidden="true">' + (n + 1) + "</span>" +
+            '<div><a class="title" href="opportunities.html#' + encodeURIComponent(p.item_key) + '">' + esc(p.title) + '</a><div class="num">' + esc(p.number) +
+            " &middot; " + esc(typeText(p.type)) + "</div>" + recChip(p) + "</div></div></td>" +
+            '<td data-label="Why it is worth our time">' + esc(p.worth) + "</td>" +
+            '<td data-label="Business upside">' + esc(p.upside) + "</td>" +
+            '<td class="action" data-label="Exact next action">' + esc(p.next_action || "None on record") + "</td>" +
+            '<td class="half" data-label="Owner">' + esc(p.owner) + "</td>" +
+            '<td class="half" data-label="Deadline">' + (p.deadline_words ? esc(p.deadline_what + " " + p.deadline_words) : '<span class="subtle">None due</span>') + "</td></tr>";
+        }).join("") + "</tbody></table></div>" : "";
+      if (h.priorities_note) body += '<p class="' + (pri.length ? "note-line" : "empty") + '">' + esc(h.priorities_note) + "</p>";
+      body += '<p class="note-line"><a href="decisions.html">' + (h.decisions_ready ? plural(h.decisions_ready, "decision is", "decisions are") + " ready for you on the Decisions page"
+        : "No decision is ready for you; the Decisions page lists the rest") + "</a></p>";
       html += section("today", "Your priorities today", body + rule(h.priorities_rule));
 
-      // B. best opportunities
+      // B. best opportunities, by the recommendation
       var top = h.top || [];
       var q = top.filter(function (x) { return x.group === "qualified"; });
       var pr = top.filter(function (x) { return x.group !== "qualified"; });
       var row = function (x) {
-        var next = x.group === "qualified" ? firstSentence(x.next_action) : x.next_action;
+        // the chip already says it waits on the government; the reason need not say it again
+        var reason = x.waiting_on === "government" ? (x.reason || "").replace(/^Waiting on the government \(file 0009\):\s*/, "") : x.reason;
+        if (reason) reason = reason.charAt(0).toUpperCase() + reason.slice(1);
+        x = Object.assign({}, x, { reason: reason });
         return '<li><a class="title" href="opportunities.html#' + encodeURIComponent(x.item_key) + '">' + esc(x.title) + "</a>" +
           '<div class="num">' + esc(x.number) + " &middot; " + esc(typeText(x.type)) + "</div>" +
-          '<div class="meta">' + chip(x.worth, x.group === "qualified" ? "High" : "Medium") +
-          (x.waiting_on === "government" ? chip("Waiting on the government", "Info") : "") +
-          (x.value ? "<span>" + esc(x.value) + " " + esc((x.value_words || "").toLowerCase()) + "</span>" : '<span class="subtle">Value unknown</span>') + "</div>" +
-          (x.why ? '<p class="why">' + esc(clip(x.why, 170)) + "</p>" : "") +
-          (x.group === "qualified" ? "" : '<p class="subtle">' + esc(x.qualification) + "</p>") +
-          "<p><b>Next:</b> " + esc(clip(next, 150)) + "</p>" +
+          '<div class="meta">' + recChip(x) + (x.waiting_on === "government" ? chip("Waiting on the government", "Info") : "") +
+          (x.advantage ? chip("Position: " + x.advantage, POSITION_CLASS[x.advantage] || "Muted") : "") + "</div>" +
+          '<p><b>Upside:</b> ' + esc(clip(x.upside, 150)) + "</p>" +
+          (x.reason ? '<p class="why">' + esc(clip(x.reason, 170)) + "</p>" : "") +
+          "<p><b>Next:</b> " + esc(clip(x.next_action, 150)) + "</p>" +
           '<div class="meta"><span>' + esc((x.deadline_what || "") + " " + (x.deadline_words || "")) + "</span><span>Owner: " + esc(ownerText(x.owner)) + "</span></div></li>";
       };
-      var bbody = '<div class="grid two inner"><div><h3>Qualified pursuits</h3>' + (q.length ? '<ul class="items">' + q.map(row).join("") + "</ul>"
-        : '<p class="empty">No opportunity is qualified yet. The research steps beside this could qualify the most promising ones.</p>') + "</div>";
-      bbody += "<div><h3>Promising, research needed</h3>" + (pr.length ? '<ul class="items">' + pr.map(row).join("") + "</ul>" : '<p class="empty">None.</p>') + "</div></div>";
-      bbody += '<p class="note-line">' + esc(h.qualified_count) + " qualified and " + esc(h.promising_count) + ' promising in all. <a href="opportunities.html">All opportunities</a></p>' + rule(h.top_rule);
+      var rc = h.recommendation_counts || {};
+      var bbody = '<div class="grid two inner"><div><h3>Best to pursue, or waiting on the government</h3>' + (q.length ? '<ul class="items">' + q.map(row).join("") + "</ul>"
+        : '<p class="empty">None right now.</p>') + "</div>";
+      bbody += "<div><h3>Worth a short check</h3>" + (pr.length ? '<ul class="items">' + pr.map(row).join("") + "</ul>" : '<p class="empty">None.</p>') + "</div></div>";
+      bbody += '<p class="note-line">In all: ' + esc(num(rc.pursue)) + " to pursue, " + esc(num(rc.investigate)) + " to investigate briefly, " + esc(num(rc.watch)) +
+        " to watch, " + esc(num(rc.pass)) + ' passed or deprioritized. <a href="opportunities.html">All opportunities</a></p>' + rule(h.top_rule);
       html += section("best", "Highest-value opportunities", bbody);
       html += '<div class="grid three">';
 
@@ -273,11 +306,13 @@
       // D. risks
       var risks = h.risks || [];
       var dbody = risks.length ? '<ul class="items">' + risks.map(function (r) {
-        return "<li>" + chip(r.label, "Low") + (r.title ? ' <a class="title" href="opportunities.html#' + encodeURIComponent(r.item_key) + '">' + esc(clip(r.title, 90)) + "</a>" : "") +
+        var rec = { "Pursue": "pursue", "Investigate briefly": "investigate", "Watch": "watch", "Pass / deprioritize": "pass" }[r.recommendation];
+        return "<li>" + chip(r.label, "Low") + (r.recommendation ? " " + chip(r.recommendation, REC_CLASS[rec] || "Muted") : "") +
+          (r.title ? ' <a class="title" href="opportunities.html#' + encodeURIComponent(r.item_key) + '">' + esc(clip(r.title, 90)) + "</a>" : "") +
           (r.number ? ' <span class="num">' + esc(r.number) + "</span>" : "") + "<p>" + esc(r.text) + '</p><div class="meta"><span>Who resolves it: ' + esc(ownerText(r.owner)) + "</span>" +
           (r.kind === "task_review" || r.kind === "overdue_tasks" || r.kind === "unassigned_tasks" ? '<a href="va.html">Review the tasks</a>' : "") + "</div></li>";
       }).join("") + "</ul>" : '<p class="empty">Nothing needs intervention right now.</p>';
-      dbody += '<p class="subtle">Items already in your priorities are not repeated here.</p>';
+      dbody += '<p class="subtle">Items already in your priorities are not repeated here, and items recommended for a pass are left out.</p>';
       html += section("risks", "Risks and blockers", dbody);
 
       // E. pipeline snapshot
@@ -316,37 +351,32 @@
 
   // ---------------------------------------------------------------- 2. Opportunities
   var FILTERS = [
-    ["best", "Best opportunities"], ["research", "Needs research"], ["urgent", "Urgent"], ["progress", "In progress"],
-    ["passed", "Passed or excluded"], ["all", "All opportunities"]];
-  var oppState = { items: [], filter: "best", q: "" };
+    ["pursue", "Best to pursue"], ["investigate", "Investigate briefly"], ["watch", "Watch"], ["pass", "Pass / deprioritize"], ["all", "All records"]];
+  var EMPTY = {
+    pursue: "None is recommended for pursuit right now. Prospects waiting on the government are under Watch; opportunities worth a short check are under Investigate briefly.",
+    investigate: "Nothing needs a short check right now.", watch: "Nothing to watch.", pass: "Nothing is passed or deprioritized.", all: "No records." };
+  var oppState = { items: [], filter: "pursue", q: "", rules: null };
   function inFilter(i, f) {
-    var v = i.view || {}, s = v.stage;
-    switch (f) {
-      case "best": return s === "qualified" || s === "approved" || (s === "research" && v.promising);
-      case "research": return s === "research";
-      case "urgent": return (["research", "qualified", "approved"].indexOf(s) >= 0 || (s === "responded" && v.registration_status === "not_verified")) &&
-        v.deadline_at && Date.parse(v.deadline_at) >= Date.now() && Date.parse(v.deadline_at) < Date.now() + 7 * 864e5;
-      case "progress": return ["responded", "bid_sent", "watch", "approved"].indexOf(s) >= 0;
-      case "passed": return ["passed", "closed", "likely_out"].indexOf(s) >= 0;
-      default: return true;
-    }
+    var p = i.pursuit || {};
+    return f === "all" ? true : p.recommendation === f;
   }
   function opportunities() {
     if (needsPhlux()) return;
     rpc("ci_opportunities").then(function (items) {
-      if (items && items.length && !(items[0].view && "registration_status" in items[0].view)) { old0008(); return; }
+      if (items && items.length && !items[0].pursuit) { old0008(); return; }
       oppState.items = items || [];
+      oppState.rules = (oppState.items.filter(function (i) { return i.pursuit_rules; })[0] || {}).pursuit_rules || null;
       var tabs = FILTERS.map(function (f) {
         var n = oppState.items.filter(function (i) { return inFilter(i, f[0]); }).length;
         return '<button class="tab" data-f="' + f[0] + '" aria-pressed="' + (f[0] === oppState.filter) + '">' + esc(f[1]) + ' <span class="count">' + n + "</span></button>";
       }).join("");
-      setMain('<h1>Opportunities</h1><p class="lede">Best first: qualified, then promising by fit, never by contract size alone. ' +
-        "Passed, closed and responded items sit under their own tab. Select a row for the full detail.</p>" +
+      setMain('<h1>Opportunities</h1><p class="lede">One recommendation for each, value first: what is worth pursuing, what a short check would decide, ' +
+        "what to watch, and what is passed or deprioritized, with the reason. Contract size alone never makes a pursuit. Select a row for the evidence.</p>" +
         '<div class="tabs" role="group" aria-label="Show">' + tabs + '</div><div class="filters"><label>Search<input type="text" id="f-q" placeholder="Title, number or buyer"></label>' +
         '<span class="status" id="f-count" aria-live="polite"></span></div>' +
-        '<div class="table-wrap"><table class="opps rtable"><thead><tr><th scope="col">Opportunity</th><th scope="col">Worth pursuing?</th>' +
-        '<th scope="col">Potential value</th><th scope="col">Next action</th><th scope="col">Deadline</th><th scope="col">Owner</th></tr></thead>' +
-        '<tbody id="rows"></tbody></table></div><div id="drawer"></div>');
+        '<div class="table-wrap"><table class="opps rtable"><thead><tr><th scope="col">Opportunity</th><th scope="col">Recommendation</th>' +
+        '<th scope="col">Business upside</th><th scope="col">Next action</th><th scope="col">Deadline</th><th scope="col">Owner</th></tr></thead>' +
+        '<tbody id="rows"></tbody></table></div><div id="drawer"></div>' + rule((oppState.rules || {}).recommendation, "How the recommendation is chosen"));
       all(".tab").forEach(function (b) {
         b.addEventListener("click", function () {
           oppState.filter = b.getAttribute("data-f");
@@ -368,14 +398,14 @@
     rows.sort(function (a, b) { return (a.rank || 0) - (b.rank || 0); });
     $("#f-count").textContent = rows.length + " shown of " + s.items.length;
     $("#rows").innerHTML = rows.length ? rows.map(function (i) {
-      var v = i.view || {};
+      var p = i.pursuit || {};
       return '<tr data-key="' + esc(i.item_key) + '" tabindex="0"><td class="item" data-label="Opportunity">' + itemTitle(i) + "</td>" +
-        '<td data-label="Worth pursuing?">' + worthChip(v) + '<div class="subtle">' + esc(clip(v.plain_status, 90)) + "</div></td>" +
-        '<td data-label="Potential value">' + valueBlock(i.value_text, v.value_words) + "</td>" +
-        '<td class="action" data-label="Next action">' + (v.next_action ? esc(clip(v.next_action, 120)) : '<span class="subtle">None</span>') + "</td>" +
-        '<td class="half" data-label="Deadline">' + deadlineCell(v) + "</td>" +
-        '<td class="half" data-label="Owner">' + esc(ownerText(v.owner)) + "</td></tr>";
-    }).join("") : '<tr class="static"><td colspan="6" class="empty">Nothing under this tab.</td></tr>';
+        '<td data-label="Recommendation">' + recChip(p) + '<div class="subtle">' + esc(clip(p.reason, 110)) + "</div></td>" +
+        '<td data-label="Business upside">' + esc(clip(p.upside, 90)) + "</td>" +
+        '<td class="action" data-label="Next action">' + (p.next_action ? esc(clip(p.next_action, 120)) : '<span class="subtle">None</span>') + "</td>" +
+        '<td class="half" data-label="Deadline">' + pDeadline(p) + "</td>" +
+        '<td class="half" data-label="Owner">' + (p.owner ? esc(ownerText(p.owner)) : '<span class="subtle">None</span>') + "</td></tr>";
+    }).join("") : '<tr class="static"><td colspan="6" class="empty">' + esc(s.q ? "Nothing under this tab matches the search." : EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>";
     all("#rows tr[data-key]").forEach(function (tr) {
       tr.addEventListener("click", function () { openItem(tr.getAttribute("data-key")); });
       tr.addEventListener("keydown", function (e) { if (e.key === "Enter") openItem(tr.getAttribute("data-key")); });
@@ -390,16 +420,17 @@
   function openItem(key) {
     var i = oppState.items.filter(function (x) { return x.item_key === key; })[0];
     if (!i) return;
-    var v = i.view || {};
+    var v = i.view || {}, p = i.pursuit || {};
     var know = knownFacts(i), unk = uncertain(i);
     $("#drawer").innerHTML = '<div class="backdrop" id="backdrop"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Opportunity detail">' +
       '<button class="close small" id="close">Close</button>' + itemTitle(i, true) +
-      '<div class="meta">' + worthChip(v) + "<span>" + esc(v.plain_status) + "</span></div>" +
-      '<dl class="kv">' +
+      '<div class="meta">' + recChip(p) + "<span>" + esc(v.plain_status) + "</span></div>" +
+      commercialHtml(p, oppState.rules) +
+      '<h3>Where it stands</h3><dl class="kv">' +
       (v.why ? "<dt>Why it may fit</dt><dd>" + esc(v.why) + "</dd>" : "") +
-      "<dt>Next action</dt><dd>" + esc(v.next_action || "None") + "</dd>" +
-      "<dt>Owner</dt><dd>" + esc(ownerText(v.owner)) + "</dd>" +
-      "<dt>Deadline</dt><dd>" + esc(v.deadline_words ? v.deadline_what + ": " + v.deadline_words : "None due") + "</dd>" +
+      (p.next_action ? "" : "<dt>Next action</dt><dd>None</dd>") +
+      "<dt>Owner</dt><dd>" + (p.owner ? ownerOf(p) : "None") + "</dd>" +
+      "<dt>Deadline</dt><dd>" + esc(p.deadline_words ? p.deadline_what + ": " + p.deadline_words : "None due") + "</dd>" +
       (v.decision_overdue_since ? "<dt>Overdue</dt><dd>The research asked for your decision by " + esc(v.decision_overdue_since) + ".</dd>" : "") +
       (v.closes_words ? "<dt>Closes on SAM.gov</dt><dd>" + esc(v.closes_words) + "</dd>" : "") +
       (v.lane_due_words ? "<dt>Responses due</dt><dd>" + esc(v.lane_due_words) + "</dd>" : "") +
@@ -411,7 +442,6 @@
       // a response already sent is not shown with the record's "Responses due" line: the date it carries is in Deadline above
       (i.next_date_la && v.stage !== "responded" ? "<dt>Next date on record</dt><dd>" + esc(i.next_date_what + ": " + i.next_date_la) + "</dd>" : "") +
       "<dt>Figure on record</dt><dd>" + (i.value_text ? esc(i.value_text) + " (" + esc(v.value_words) + "). " + esc(v.value_note) : "Unknown: no figure is on record.") + "</dd>" +
-      "<dt>Revenue for Body Ops</dt><dd>Not estimated.</dd>" +
       (know.length ? "<dt>What we know</dt><dd><ul>" + know.map(function (k) { return "<li>" + esc(k) + "</li>"; }).join("") + "</ul></dd>" : "") +
       (unk.length ? "<dt>Still uncertain</dt><dd><ul>" + unk.map(function (k) { return "<li>" + esc(k) + "</li>"; }).join("") + "</ul></dd>" : "") +
       (v.also_needed ? "<dt>Also needed</dt><dd>" + esc(v.also_needed) + "</dd>" : "") +
@@ -429,14 +459,19 @@
   function decisions() {
     if (needsPhlux()) return;
     rpc("ci_decision_queue").then(function (q) {
-      if (!q || !("set_aside_by_her_word" in q) || !("waiting_on_government_rule" in q)) { old0008(); return; }
+      if (!q || !("set_aside_by_her_word" in q) || !("waiting_on_government_rule" in q) || q.pursuit_version !== "0010") { old0008(); return; }
       var w = q.waiting || [];
       var kind = function (k) { return w.filter(function (i) { return k.indexOf(i.view.decision_kind) >= 0; }); };
+      var isReady = function (i) { var p = i.pursuit || {}; return p.recommendation === "pursue" || (p.recommendation === "investigate" && p.owner === "PHLUX"); };
       var strategic = kind(["go", "strategic"]), access = kind(["access", "system"]), research = kind(["likely_out", "research"]);
-      var html = '<h1>Decisions</h1><p class="lede">Only what needs your judgment comes first. Document and system problems are listed apart, ' +
+      var ready = strategic.filter(isReady), later = strategic.filter(function (i) { return !isReady(i); });
+      var html = '<h1>Decisions</h1><p class="lede">Only what needs your judgment comes first, with the commercial view of each. Document and system problems are listed apart, ' +
         "and work for the assistant is on its own page. A decision saved here is kept in this layer only; GovCon OS is not changed.</p>";
-      html += '<h2 class="section">Decisions for you <span class="count">' + strategic.length + "</span></h2>" +
-        (strategic.length ? '<div class="cards">' + strategic.map(decisionCard).join("") + "</div>" : '<div class="panel empty">No strategic decision is needed today.</div>');
+      html += '<h2 class="section">Decisions for you <span class="count">' + ready.length + "</span></h2>" +
+        (ready.length ? '<div class="cards">' + ready.map(decisionCard).join("") + "</div>" : '<div class="panel empty">No decision is ready for you today.</div>');
+      if (later.length) html += '<h2 class="section">Not ready for a decision <span class="count">' + later.length + "</span></h2>" +
+        '<p class="lede">The commercial view says to investigate first, to watch, or to pass / deprioritize. You can still decide any of them.</p>' +
+        '<div class="cards">' + later.map(decisionCard).join("") + "</div>" + rule(q.ready_rule);
       html += '<h2 class="section">Document access and system issues <span class="count">' + access.length + "</span></h2>" +
         '<p class="lede">Not decisions: each needs a step before the research can continue. Who resolves it is named.</p>' +
         (access.length ? '<div class="cards">' + access.map(function (i) { return blockCard(i); }).join("") + "</div>" : '<div class="panel empty">None.</div>');
@@ -484,8 +519,16 @@
   function deadlineLine(v) {
     return v.deadline_words ? esc(v.deadline_what) + " " + esc(v.deadline_words) : "None on record";
   }
+  // The commercial line on a Decisions card: the recommendation and, when someone else should check first, that check.
+  function commercialLine(i) {
+    var p = i.pursuit || {};
+    if (!p.recommendation) return "";
+    var first = p.recommendation === "investigate" && p.owner !== "PHLUX" && p.next_action
+      ? " <b>Investigate first:</b> " + esc(p.next_action) + " " + esc(p.owner_note || ("Owner: " + ownerText(p.owner) + ".")) + " Decide after." : "";
+    return "<dt>Commercial view</dt><dd>" + recChip(p) + " " + esc(p.reason) + first + "</dd>";
+  }
   function decisionCard(i) {
-    var v = i.view || {};
+    var v = i.view || {}, p = i.pursuit || {};
     var know = knownFacts(i), unk = uncertain(i);
     var why = v.decision_kind === "go" ? v.why
       : [v.decision_overdue_since ? "The research asked for your decision by " + v.decision_overdue_since + "." : "",
@@ -493,9 +536,9 @@
          v.lane_due_words ? "Responses are due " + v.lane_due_words + "." : "",
          !v.decision_overdue_since && !v.lane_due_words && v.deadline_what !== "Offers due" ? "The research needs your answer to continue." : ""].join(" ").trim();
     return '<article class="card" data-key="' + esc(i.item_key) + '"><div class="card-head"><div>' + itemTitle(i) + '</div><div class="due">' + esc(deadlineShort(v) || "") + "</div></div>" +
-      '<dl class="kv tight">' +
-      "<dt>Why it deserves attention</dt><dd>" + esc(why || v.plain_status) + "</dd>" +
-      "<dt>Potential upside</dt><dd>" + (i.value_text ? esc(i.value_text) + " (" + esc((v.value_words || "").toLowerCase()) + "). " + esc(v.value_note) : "Unknown: no figure is on record.") + "</dd>" +
+      '<dl class="kv tight">' + commercialLine(i) +
+      "<dt>Why the research asks you</dt><dd>" + esc(why || v.plain_status) + "</dd>" +
+      "<dt>Business upside</dt><dd>" + esc(p.upside || (i.value_text ? i.value_text + " (" + (v.value_words || "").toLowerCase() + ")" : "Not known: no figure is on record")) + ".</dd>" +
       "<dt>What we know</dt><dd>" + (know.length ? esc(clip(know.join(" "), 230)) : (v.blocker ? esc(clip(firstSentence(v.blocker), 230)) : "Nothing is settled yet.")) + "</dd>" +
       "<dt>Still uncertain</dt><dd>" + (unk.length ? esc(clip(unk.join("; "), 200)) : "Nothing listed.") + "</dd>" +
       "<dt>Decision needed</dt><dd><b>" + esc(v.decision_question || v.next_action) + "</b>" + (v.also_needed ? " " + esc(v.also_needed) : "") + "</dd>" +
@@ -511,7 +554,7 @@
       : { access: "Document access", system: "System issue", likely_out: "Probably out", research: "Research needed" }[v.decision_kind] || "";
     return '<article class="card" data-key="' + esc(i.item_key) + '"><div class="card-head"><div>' + itemTitle(i) + '</div><div class="due">' +
       chip(label, v.decision_kind === "likely_out" ? "Muted" : as === "waiting" ? (g.reassess ? "Medium" : "Info") : "Medium") + "</div></div>" +
-      '<dl class="kv tight">' +
+      '<dl class="kv tight">' + commercialLine(i) +
       "<dt>" + (as === "waiting" ? "Where it stands" : "What is blocked") + "</dt><dd>" + esc(v.plain_status) + "</dd>" +
       (as === "waiting" ? "<dt>Inquiry</dt><dd>" + esc(g.inquiry || "None on record") + "</dd>" +
         "<dt>Follow up</dt><dd>" + esc(g.follow_up_la || "No date on record") + "</dd>" +

@@ -228,3 +228,11 @@ details.ops { margin-top: 14px; }
   .table-wrap { overflow-x: visible; }
   td.action, table.opps td.item, td.item { max-width: none; min-width: 0; }
 }
+
+/* Today's priorities in six columns (file 0010) */
+.pri-line { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.pri-line .pri-n { flex: 0 0 auto; }
+.pri-line > div { min-width: 0; }
+table.pri-table td { vertical-align: top; }
+table.pri-table td.item { min-width: 220px; }
+@media (max-width: 760px) { table.pri-table td.item { min-width: 0; } }
