@@ -1,4 +1,4 @@
-/* Capture Intelligence: the Needs You page (file 0014; reading statuses from GovCon OS, file 0015). Lists the file tasks, takes files dropped on a task, and
+/* Capture Intelligence: the Needs You page (file 0014; reading statuses from GovCon OS, files 0015 and 0016). Lists the file tasks, takes files dropped on a task, and
    shows exactly what the database has recorded. Reads and writes only the Capture Intelligence project. */
 (function () {
   "use strict";
@@ -15,10 +15,10 @@
   var READING = {
     not_sent: ["Recorded. Not read yet", "Low", "The file is stored and linked to this task. It has not been read yet; the note says what happens next."],
     queued: ["Queued for reading", "Medium", "Sent to GovCon OS; waiting for its answer."],
-    read: ["Read", "Medium", "GovCon OS took the text off its pages. The lead reader has not used it yet, so it is not analyzed."],
-    partial: ["Partial", "Low", "GovCon OS found text on only some pages. The pages with text go to the lead reader; the note lists the rest."],
-    analyzed: ["Analyzed", "Medium", "The lead reader saved a ruling that uses this file. The task is still open."],
-    complete: ["Complete", "High", "The lead reader saved a ruling that uses this file, and the lead needs nothing more from a person."],
+    read: ["Read", "Medium", "GovCon OS took the text off its pages. No saved ruling uses it yet, so it is not analyzed."],
+    partial: ["Partial", "Low", "GovCon OS found text on only some pages. For a lead the pages with text go to the lead reader; a federal notice waits for a copy with text on every page. The note says which."],
+    analyzed: ["Analyzed", "Medium", "A saved ruling uses this file (the lead reader's for a lead, the qualification run's for a federal notice). Something is still open; the note says what."],
+    complete: ["Complete", "High", "A saved ruling uses this file, and GovCon OS needs nothing more from this file."],
     failed: ["Failed", "Low", "GovCon OS could not take text from this file. Replace it with a better copy, or report it blocked."],
     needs_attention: ["Needs attention", "Low", "Something about this file needs a person. See the note."]
   };
@@ -110,8 +110,9 @@
   }
 
   // ---------------------------------------------------------------- the list
-  // The same rule the database uses: only files on a lead go to GovCon OS for reading.
+  // The same rule the database uses: files on a lead or a federal notice go to GovCon OS for reading.
   function isLead(i) { return /^lead:/.test((i && i.item_key) || ""); }
+  function readByGovcon(i) { return /^(lead|notice):/.test((i && i.item_key) || ""); }
   function decisionChip(i) {
     if (i.decision === "approved") return chip("Approved for work", "High");
     if (i.decision === "passed") return chip("Passed", "Muted");
@@ -136,9 +137,9 @@
     var st = files.map(function (f) { return f.reading_status; });
     var has = function (s) { return st.indexOf(s) >= 0; };
     if (has("needs_attention") || has("failed")) return "A file needs attention";
-    if (!isLead(i)) return "Files received: waiting for PHLUX to read them";
+    if (!readByGovcon(i)) return "Files received: waiting for PHLUX to read them";
     if (has("not_sent") || has("queued")) return "Files received: waiting for GovCon OS";
-    if (has("read") || has("partial")) return "Files read: waiting for the lead reader";
+    if (has("read") || has("partial")) return isLead(i) ? "Files read: waiting for the lead reader" : "Files read: waiting for the qualification run";
     if (has("analyzed")) return "Files analyzed: the task is still open";
     return "Files complete";
   }
@@ -217,7 +218,7 @@
     var html = '<section class="panel"><h1>Needs You</h1><p class="lede">' + (me.phlux ? "The files only a person can get, who has them, what came in, and what is blocked."
       : "The files the system cannot open. Sign in to the site named on each one, download the files, and drop them on that same item here.") + "</p>" +
       '<p class="counts"><span class="count">' + mine.length + "</span> to get &nbsp; <span class=\"count\">" + blocked + "</span> blocked &nbsp; <span class=\"count\">" + waiting + "</span> received, waiting for reading</p>" +
-      '<p class="notice"><b>How files are read.</b> A file on a lead goes to GovCon OS by itself the moment it is recorded. It shows <b>Read</b> when GovCon OS has the text of its pages, <b>Analyzed</b> when the daily lead reader (7:47 AM Los Angeles time) saves a ruling that uses it, and <b>Complete</b> only when that lead needs nothing more from a person. Closing a task does not make its files Complete. A file on a federal notice is not read by GovCon OS yet: PHLUX reads it with Claude, and its note says so.</p>' +
+      '<p class="notice"><b>How files are read.</b> A file on a lead goes to GovCon OS by itself the moment it is recorded. It shows <b>Read</b> when GovCon OS has the text of its pages, <b>Analyzed</b> when the daily lead reader (7:47 AM Los Angeles time) saves a ruling that uses it, and <b>Complete</b> only when that lead needs nothing more from a person. Closing a task does not make its files Complete. A file on a federal notice goes to GovCon OS the same way, as a copy of the one posted file it is for: choose that file when the task lists more than one. It shows <b>Analyzed</b> when the qualification run (8:00 AM and 12:00 PM Los Angeles time) saves a ruling that read it, and <b>Complete</b> when that ruling is a verdict. A copy with pages that have no text is kept, and the notice still waits for that file.</p>' +
       "</section>";
     if (!mine.length) html += '<section class="panel"><p class="empty">Nothing to get right now.</p></section>';
     portals.forEach(function (p) {
@@ -292,7 +293,7 @@
     row.set("Uploaded. Recording it in the database...");
     return rpc("ci_ny_record_upload", { p_slot: slot }).then(function (r) {
       if (r.status === "duplicate") row.ok("Already received as " + r.file_name + " on " + r.recorded_la + ". Not recorded twice.");
-      else row.ok("Linked to this task " + r.recorded_la + ". " + (lead ? "Sent to GovCon OS for reading." : "Not read yet: PHLUX reads federal notice files with Claude."));
+      else row.ok("Linked to this task " + r.recorded_la + ". " + (lead ? "Sent to GovCon OS for reading." : "Not read yet: PHLUX reads this kind of file with Claude."));
       return true;
     }).catch(function (e) {
       row.bad("The file is stored, but the database did not record it: " + (e.message || e) + " The file is kept.", function () { recordSlot(slot, row, lead).then(function (ok) { if (ok) load(true); }); });
@@ -315,7 +316,7 @@
     }).then(function (r) {
       if (r.status === "duplicate") { row.ok("Already received as " + r.file_name + " on " + r.recorded_la + ". Not uploaded again."); return true; }
       row.set("Uploading 0%");
-      return putFile(r.upload_url, file, function (p) { row.set("Uploading " + p + "%"); }).then(function () { return recordSlot(r.slot, row, isLead(i)); });
+      return putFile(r.upload_url, file, function (p) { row.set("Uploading " + p + "%"); }).then(function () { return recordSlot(r.slot, row, readByGovcon(i)); });
     }).catch(function (e) { row.bad(e.message || String(e)); return false; });
   }
   function uploadMany(task, files) {
@@ -390,7 +391,7 @@
   // ---------------------------------------------------------------- start
   var foot = $(".foot");
   if (foot) foot.textContent = "Files dropped here are stored in Capture Intelligence's own private storage and recorded against the task you dropped them on. " +
-    "A file on a lead is then sent to GovCon OS, which keeps its own copy in its document library and takes the text off its pages for the lead reader. " +
+    "A file on a lead or a federal notice is then sent to GovCon OS, which keeps its own copy in its document library and takes the text off its pages for the lead reader or the qualification run. " +
     "This page never sends email or posts messages.";
   if (!cfg.url || !cfg.key || !window.supabase) { setMain('<div class="panel"><h2>Not set up yet</h2></div>'); return; }
   client = window.supabase.createClient(cfg.url, cfg.key, { auth: { flowType: "implicit", persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } });
