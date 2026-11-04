@@ -1,4 +1,4 @@
-/* Capture Intelligence: the Needs You page (file 0014). Lists the file tasks, takes files dropped on a task, and
+/* Capture Intelligence: the Needs You page (file 0014; reading statuses from GovCon OS, file 0015). Lists the file tasks, takes files dropped on a task, and
    shows exactly what the database has recorded. Reads and writes only the Capture Intelligence project. */
 (function () {
   "use strict";
@@ -13,15 +13,16 @@
   var NEEDS_PHLUX_BY_DEFAULT = { login: true, someone_else: true };
   var STATUS = { open: "Open", in_progress: "In progress", blocked: "Blocked", done: "Done", dropped: "Dropped" };
   var READING = {
-    not_sent: ["Recorded. Not read yet", "Low", "The file is stored and linked to this task. The reader connection to GovCon OS is not switched on yet, so no reading has been done."],
-    queued: ["Queued for reading", "Medium", "The reader accepted the file and will read it."],
-    read: ["Read", "Medium", "Text was taken from the pages listed."],
-    partial: ["Partial", "Low", "Only some pages could be read."],
-    analyzed: ["Analyzed", "Medium", "The reader saved what it found."],
-    complete: ["Complete", "High", "Everything needed from this file is done."],
-    failed: ["Failed", "Low", "The reader could not read this file. Replace it with a better copy, or report it blocked."],
+    not_sent: ["Recorded. Not read yet", "Low", "The file is stored and linked to this task. It has not been read yet; the note says what happens next."],
+    queued: ["Queued for reading", "Medium", "Sent to GovCon OS; waiting for its answer."],
+    read: ["Read", "Medium", "GovCon OS took the text off its pages. The lead reader has not used it yet, so it is not analyzed."],
+    partial: ["Partial", "Low", "GovCon OS found text on only some pages. The pages with text go to the lead reader; the note lists the rest."],
+    analyzed: ["Analyzed", "Medium", "The lead reader saved a ruling that uses this file. The task is still open."],
+    complete: ["Complete", "High", "The lead reader saved a ruling that uses this file, and the lead needs nothing more from a person."],
+    failed: ["Failed", "Low", "GovCon OS could not take text from this file. Replace it with a better copy, or report it blocked."],
     needs_attention: ["Needs attention", "Low", "Something about this file needs a person. See the note."]
   };
+  var reloadTimer = null, autoReloads = 0, lastCheck = 0, uploading = 0;
 
   function $(s, el) { return (el || document).querySelector(s); }
   function esc(s) {
@@ -109,6 +110,8 @@
   }
 
   // ---------------------------------------------------------------- the list
+  // The same rule the database uses: only files on a lead go to GovCon OS for reading.
+  function isLead(i) { return /^lead:/.test((i && i.item_key) || ""); }
   function decisionChip(i) {
     if (i.decision === "approved") return chip("Approved for work", "High");
     if (i.decision === "passed") return chip("Passed", "Muted");
@@ -121,15 +124,23 @@
   function itemState(i) {
     var open = (i.blocks || []).filter(function (b) { return !b.resolved; });
     var files = i.files || [];
-    if (i.status === "done") return "Complete";
+    // A closed task is not the same as read files: each file keeps its own reading status below.
+    if (i.status === "done") return "Task closed";
+    if (i.status === "dropped") return "Task dropped";
     if (open.length) return "Blocked";
     var wanted = (i.files_wanted || []).map(function (w) { return w.name; });
     var got = files.map(function (f) { return f.for_file; });
     var missing = wanted.filter(function (w) { return got.indexOf(w) < 0; });
     if (!files.length) return "Waiting for files";
     if (wanted.length && missing.length) return "Some files received: " + missing.length + " still missing";
-    var unread = files.filter(function (f) { return f.reading_status !== "complete"; });
-    return unread.length ? "Files received: waiting for reading" : "Files read";
+    var st = files.map(function (f) { return f.reading_status; });
+    var has = function (s) { return st.indexOf(s) >= 0; };
+    if (has("needs_attention") || has("failed")) return "A file needs attention";
+    if (!isLead(i)) return "Files received: waiting for PHLUX to read them";
+    if (has("not_sent") || has("queued")) return "Files received: waiting for GovCon OS";
+    if (has("read") || has("partial")) return "Files read: waiting for the lead reader";
+    if (has("analyzed")) return "Files analyzed: the task is still open";
+    return "Files complete";
   }
   function fileRow(f) {
     var r = READING[f.reading_status] || [f.reading_status, "Muted", ""];
@@ -155,7 +166,7 @@
     var wanted = i.files_wanted || [];
     var h = '<article class="card nycard" id="t-' + esc(i.task) + '">';
     h += '<div class="card-head"><div><div class="num">' + esc(i.number || "") + "</div><div class=\"pri-title\">" + esc(i.title || "") + "</div>" +
-      '<div class="subtle">' + esc(i.buyer || "Buyer not on record") + "</div></div><div>" + chip(itemState(i), itemState(i) === "Blocked" ? "Low" : "Info") + "</div></div>";
+      '<div class="subtle">' + esc(i.buyer || "Buyer not on record") + "</div></div><div>" + chip(itemState(i), /^(Blocked|A file needs attention)$/.test(itemState(i)) ? "Low" : "Info") + "</div></div>";
     h += '<div class="meta">' + priorityChip(i) + decisionChip(i) + (phlux ? chip("Owner: " + i.owner, "Muted") : "") + "</div>";
     if (i.section === "check_first") h += '<p class="notice"><b>Check first, do not download yet.</b> This may be the same bid as ' + esc(i.duplicate_of) + ". PHLUX confirms before anyone works it.</p>";
     if (i.section === "not_needed") h += '<p class="notice"><b>Probably not needed.</b> ' + esc(i.not_needed_why) + (phlux ? " Resolve it below if you agree." : " No work is needed; PHLUX will close it.") + "</p>";
@@ -202,11 +213,11 @@
       return ra - rb || a.localeCompare(b);
     });
     var blocked = mine.filter(function (i) { return itemState(i) === "Blocked"; }).length;
-    var waiting = mine.filter(function (i) { return /waiting for reading/.test(itemState(i)); }).length;
+    var waiting = mine.filter(function (i) { return /waiting for/.test(itemState(i)); }).length;
     var html = '<section class="panel"><h1>Needs You</h1><p class="lede">' + (me.phlux ? "The files only a person can get, who has them, what came in, and what is blocked."
       : "The files the system cannot open. Sign in to the site named on each one, download the files, and drop them on that same item here.") + "</p>" +
       '<p class="counts"><span class="count">' + mine.length + "</span> to get &nbsp; <span class=\"count\">" + blocked + "</span> blocked &nbsp; <span class=\"count\">" + waiting + "</span> received, waiting for reading</p>" +
-      '<p class="notice"><b>Reading is not switched on yet.</b> Files dropped here are stored and recorded against their task right away, and show <b>Recorded. Not read yet</b>. Reading them in GovCon OS needs PHLUX\'s approval of the reader connection. Until then nothing here says Read or Complete.</p>' +
+      '<p class="notice"><b>How files are read.</b> A file on a lead goes to GovCon OS by itself the moment it is recorded. It shows <b>Read</b> when GovCon OS has the text of its pages, <b>Analyzed</b> when the daily lead reader (7:47 AM Los Angeles time) saves a ruling that uses it, and <b>Complete</b> only when that lead needs nothing more from a person. Closing a task does not make its files Complete. A file on a federal notice is not read by GovCon OS yet: PHLUX reads it with Claude, and its note says so.</p>' +
       "</section>";
     if (!mine.length) html += '<section class="panel"><p class="empty">Nothing to get right now.</p></section>';
     portals.forEach(function (p) {
@@ -226,7 +237,39 @@
   }
   function load(keepScroll) {
     var y = window.scrollY;
-    return rpc("ci_needs_you").then(function (d) { data = d; render(); if (keepScroll) window.scrollTo(0, y); }).catch(fail);
+    return rpc("ci_needs_you").then(function (d) {
+      data = d; render(); if (keepScroll) window.scrollTo(0, y);
+      if (anyQueued()) reloadSoon();
+    }).catch(fail);
+  }
+  function anyQueued() {
+    return (data.items || []).some(function (i) { return (i.files || []).some(function (f) { return f.reading_status === "queued"; }); });
+  }
+  // Never reload while the person is typing, has a form open, or is uploading, so nothing they started is lost.
+  function busy() {
+    var a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== "file") return true;
+    if (document.querySelector("[data-blockform]:not(.hidden)")) return true;
+    if (Array.prototype.some.call(document.querySelectorAll("input[type=text], textarea, select[data-for]"), function (x) { return x.value; })) return true;
+    return uploading > 0;
+  }
+  function reloadSoon() {
+    if (reloadTimer || autoReloads >= 8) return;
+    reloadTimer = setTimeout(function () {
+      reloadTimer = null;
+      if (busy()) { reloadSoon(); return; }
+      autoReloads++;
+      load(true);
+    }, 8000);
+  }
+  // Asks the database to send any lead file not sent yet, and to ask GovCon OS what it confirms about the files
+  // it holds. The database limits how often each happens; this page asks at most once a minute.
+  function checkReading() {
+    if (Date.now() - lastCheck < 60000) return;
+    lastCheck = Date.now();
+    rpc("ci_ny_check_reading").then(function (r) {
+      if (r && (r.handovers_started > 0 || r.status_check === "started")) { autoReloads = 0; reloadSoon(); }
+    }).catch(function () { /* the list still shows what is recorded */ });
   }
   function item(task) { return (data.items || []).filter(function (i) { return i.task === task; })[0]; }
 
@@ -245,14 +288,14 @@
       }
     };
   }
-  function recordSlot(slot, row) {
+  function recordSlot(slot, row, lead) {
     row.set("Uploaded. Recording it in the database...");
     return rpc("ci_ny_record_upload", { p_slot: slot }).then(function (r) {
       if (r.status === "duplicate") row.ok("Already received as " + r.file_name + " on " + r.recorded_la + ". Not recorded twice.");
-      else row.ok("Linked to this task " + r.recorded_la + ". Not read yet.");
+      else row.ok("Linked to this task " + r.recorded_la + ". " + (lead ? "Sent to GovCon OS for reading." : "Not read yet: PHLUX reads federal notice files with Claude."));
       return true;
     }).catch(function (e) {
-      row.bad("The file is stored, but the database did not record it: " + (e.message || e) + " The file is kept.", function () { recordSlot(slot, row).then(function (ok) { if (ok) load(true); }); });
+      row.bad("The file is stored, but the database did not record it: " + (e.message || e) + " The file is kept.", function () { recordSlot(slot, row, lead).then(function (ok) { if (ok) load(true); }); });
       return false;
     });
   }
@@ -272,7 +315,7 @@
     }).then(function (r) {
       if (r.status === "duplicate") { row.ok("Already received as " + r.file_name + " on " + r.recorded_la + ". Not uploaded again."); return true; }
       row.set("Uploading 0%");
-      return putFile(r.upload_url, file, function (p) { row.set("Uploading " + p + "%"); }).then(function () { return recordSlot(r.slot, row); });
+      return putFile(r.upload_url, file, function (p) { row.set("Uploading " + p + "%"); }).then(function () { return recordSlot(r.slot, row, isLead(i)); });
     }).catch(function (e) { row.bad(e.message || String(e)); return false; });
   }
   function uploadMany(task, files) {
@@ -281,8 +324,12 @@
     var list = Array.prototype.slice.call(files || []);
     if (!list.length) return;
     var chain = Promise.resolve(), any = false;
+    uploading++;
     list.forEach(function (f) { chain = chain.then(function () { return uploadOne(task, f, forFile).then(function (ok) { any = any || ok; }); }); });
-    chain.then(function () { if (any) setTimeout(function () { load(true); }, 600); });
+    chain.catch(function () { /* each file reports its own result */ }).then(function () {
+      uploading--;
+      if (any) { autoReloads = 0; setTimeout(function () { load(true); }, 600); }
+    });
   }
 
   // ---------------------------------------------------------------- wiring
@@ -341,6 +388,10 @@
   }
 
   // ---------------------------------------------------------------- start
+  var foot = $(".foot");
+  if (foot) foot.textContent = "Files dropped here are stored in Capture Intelligence's own private storage and recorded against the task you dropped them on. " +
+    "A file on a lead is then sent to GovCon OS, which keeps its own copy in its document library and takes the text off its pages for the lead reader. " +
+    "This page never sends email or posts messages.";
   if (!cfg.url || !cfg.key || !window.supabase) { setMain('<div class="panel"><h2>Not set up yet</h2></div>'); return; }
   client = window.supabase.createClient(cfg.url, cfg.key, { auth: { flowType: "implicit", persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } });
   window.addEventListener("dragover", function (e) { e.preventDefault(); });
@@ -357,7 +408,8 @@
       }
       me.phlux = me.seats.indexOf("phlux") >= 0;
       header();
-      return load(false);
+      document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && data) checkReading(); });
+      return load(false).then(checkReading);
     });
   }).catch(fail);
 })();
