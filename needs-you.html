@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Needs You · Capture Intelligence</title>
+  <link rel="stylesheet" href="styles.css?v=10">
+  <style>
+    .nycard .kv { margin-top: 10px; }
+    .nylinks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 2px; }
+    .nydrop { margin-top: 12px; padding: 16px; border: 2px dashed var(--line); border-radius: var(--radius); display: flex; flex-wrap: wrap;
+      gap: 8px 12px; align-items: center; background: var(--bg); }
+    .nydrop.over { border-color: var(--accent); background: var(--panel); }
+    .nydrop .button { display: inline-block; cursor: pointer; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+    .nyprogress, .nyfiles { list-style: none; padding-left: 0; margin: 6px 0 0; }
+    .nyprogress li, .nyfiles li { padding: 6px 0; border-top: 1px solid var(--line); }
+    .nyfile button { margin-top: 4px; }
+    .nyblock { margin-top: 10px; padding: 10px 12px; border-radius: 6px; border: 1px solid #c0392b; background: rgba(192, 57, 43, .08); }
+    .nyblock.cleared { border-color: var(--line); background: transparent; }
+    .nyblock p { margin: 4px 0; }
+    .nyblockform { margin-top: 10px; display: grid; gap: 8px; max-width: 640px; }
+    .nyblockform label { display: grid; gap: 4px; font-size: 14px; }
+    .nyblockform label.check { display: flex; gap: 8px; align-items: center; }
+    .nysection > summary { cursor: pointer; font-weight: 600; }
+    .nysection .cards { margin-top: 12px; }
+    .nyportal { margin-top: 18px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"
+          integrity="sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug" crossorigin="anonymous"></script>
+  <script src="config.js"></script>
+</head>
+<body data-page="needs-you">
+  <header class="top">
+    <div class="wrap">
+      <div class="brand">Capture Intelligence<small>Body Ops Coaching LLC</small></div>
+      <nav aria-label="Screens">
+        <a href="index.html" data-page="briefing" data-phlux>Today</a>
+        <a href="opportunities.html" data-page="opportunities" data-phlux>Opportunities</a>
+        <a href="decisions.html" data-page="decisions" data-phlux>Decisions</a>
+        <a href="va.html" data-page="assistant">Assistant queue</a>
+        <a href="needs-you.html" data-page="needs-you" aria-current="page">Needs You</a>
+        <a href="pipeline.html" data-page="pipeline" data-phlux>Pipeline</a>
+      </nav>
+      <div class="who" id="who"></div>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="copybar" id="copybar">Loading...</div>
+    <main id="main" aria-live="polite"><p class="empty">Loading...</p></main>
+    <p class="foot">Files dropped here are stored in Capture Intelligence's own private storage and recorded against the task you dropped them on. This page never changes GovCon OS, sends email or posts messages.</p>
+  </div>
+  <script src="ny.js?v=1"></script>
+</body>
+</html>
