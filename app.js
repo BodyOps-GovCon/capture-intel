@@ -1,4 +1,5 @@
-/* Capture Intelligence screens. Reads only the sidecar project; every change is saved only there. */
+/* Capture Intelligence screens. Reads the sidecar project. Since file 0019, Go and No go are sent to GovCon OS and
+   Research next asks GovCon OS's research run for the checks picked; tasks and notes are saved only here. */
 (function () {
   "use strict";
   var cfg = window.CI_CONFIG || {};
@@ -448,11 +449,76 @@
       (i.layer_decision ? "<dt>Your decision here</dt><dd>" + esc(DECISION[i.layer_decision.decision]) + " (" + esc(i.layer_decision.at_la) + ")" + (i.layer_decision.note ? ": " + esc(i.layer_decision.note) : "") + "</dd>" : "") +
       (v.tasks_open ? "<dt>Assistant tasks</dt><dd>" + plural(v.tasks_open, "open task") + ' <a href="va.html">in the queue</a></dd>' : "") +
       "<dt>Link</dt><dd>" + (link(i.link) || "None on record") + "</dd></dl>" +
+      '<h3>Your decision</h3><div id="decide-box"></div>' +
       "<h3>Ratings</h3>" + ratingsLine(i) + evidenceHtml(i) + sourceText(i) + rule((v.rules || {}).stage, "How its standing is decided") + "</aside>";
+    decisionBox($("#decide-box"), key);
     $("#close").addEventListener("click", closeItem);
     $("#backdrop").addEventListener("click", closeItem);
     document.addEventListener("keydown", escClose);
     $("#close").focus();
+  }
+
+  // ---------------------------------------------------------------- decisions that reach GovCon OS (file 0019)
+  var GOVCON_STATE = { recorded: "Medium", research_open: "Info", waiting: "Info", error: "Low", refused: "Low", not_sent: "Muted" };
+  function actionLine(d, withTitle) {
+    return "<li><b>" + esc(DECISION[d.decision] || d.decision) + "</b> by " + esc(d.by) + " &middot; " + esc(d.at_la) +
+      (withTitle ? '<div><a class="title" href="opportunities.html#' + encodeURIComponent(d.item_key) + '">' + esc(d.title || d.item_key) + "</a></div>" : "") +
+      (d.note ? "<p>" + esc(d.note) + "</p>" : "") +
+      ((d.paths || []).length ? '<p class="subtle">Paths asked for: ' + esc(d.paths.map(function (x) { return PATH_LABEL[x] || x; }).join("; ")) + "</p>" : "") +
+      '<div class="meta">' + chip("GovCon OS", GOVCON_STATE[d.govcon_state] || "Muted") + " <span>" + esc(d.govcon) + "</span></div>" +
+      (d.answer ? '<div class="answer"><b>Research answer</b> (' + esc(d.answered_by || "") + ", " + esc(d.answered_la || "") + ")<p>" + esc(d.answer) + "</p>" +
+        (d.answer_sources ? '<p class="subtle">Sources: ' + esc(d.answer_sources) + "</p>" : "") + "</div>"
+        : (d.govcon_state === "research_open" ? '<p class="subtle">The research run is working on it. The answer shows here when it is back.</p>' : "")) + "</li>";
+  }
+  var PATH_LABEL = { lane_check: "In our lane?", eligibility_check: "Set-aside and eligibility", incumbent_check: "Current holder and competition",
+    value_check: "Contract value", date_check: "When the next solicitation posts", effort_check: "Work to respond", price_check: "Price and 15 percent profit",
+    partner_check: "Prime or partner to team with", get_files: "Camille gets the files", ask_matt: "Ask Matt", other: "Something else" };
+  // The decision box for one item: what was decided and what GovCon OS did with it, then the three buttons.
+  function decisionBox(box, key, after) {
+    box.innerHTML = '<p class="subtle">Loading...</p>';
+    rpc("ci_item_actions", { p_item_key: key }).then(function (list) {
+      box.innerHTML = ((list || []).length ? '<ul class="items compact">' + list.map(function (d) { return actionLine(d); }).join("") + "</ul>" : "") +
+        '<div class="actions"><button data-act="go">Go</button><button data-act="no_go">No go</button><button data-act="research_next">Research next</button>' +
+        '<details class="addnote"><summary>Add a note</summary><textarea maxlength="2000" rows="2" aria-label="Note (optional)"></textarea></details>' +
+        '<span class="status" aria-live="polite"></span></div><div class="research"></div>' +
+        '<p class="subtle">Go and No go are sent to GovCon OS, which every run follows. Research next asks for the checks you pick.</p>';
+      all("[data-act]", box).forEach(function (b) {
+        b.addEventListener("click", function () {
+          var act = b.getAttribute("data-act"), st = $(".status", box), note = $(".addnote textarea", box).value;
+          if (act === "research_next") { researchPanel($(".research", box), key, note, function () { decisionBox(box, key, after); if (after) after(); }); return; }
+          all("button", box).forEach(function (x) { x.disabled = true; });
+          st.textContent = "Saving...";
+          rpc("ci_decide", { p_item_key: key, p_decision: act, p_note: note || null })
+            .then(function () { decisionBox(box, key, after); if (after) after(); })
+            .catch(function (e) { st.textContent = e.message; all("button", box).forEach(function (x) { x.disabled = false; }); });
+        });
+      });
+    }).catch(function (e) { box.innerHTML = '<p class="notice">' + esc(e.message) + "</p>"; });
+  }
+  // Research next: the paths that fit this item, from what its record is missing. Pick one or more.
+  function researchPanel(panel, key, note, done) {
+    panel.innerHTML = '<p class="subtle">Loading the options...</p>';
+    rpc("ci_research_options", { p_item_key: key }).then(function (r) {
+      var opts = (r && r.options) || [];
+      panel.innerHTML = '<fieldset class="paths"><legend>What should happen next so you can decide? Pick one or more.</legend>' +
+        opts.map(function (o) {
+          return '<label class="path"><input type="checkbox" value="' + esc(o.path) + '"> <b>' + esc(o.label) + "</b>" +
+            '<span class="subtle"> ' + esc(o.why) + " Who: " + esc(o.who) + ".</span></label>";
+        }).join("") + '<label class="note">Note (needed for "Ask Matt" and "Something else")<textarea maxlength="2000" rows="2">' + esc(note || "") + "</textarea></label>" +
+        '<div class="actions"><button class="primary" data-send>Send the research request</button><button data-cancel>Cancel</button>' +
+        '<span class="status" aria-live="polite"></span></div></fieldset>';
+      $("[data-cancel]", panel).addEventListener("click", function () { panel.innerHTML = ""; });
+      $("[data-send]", panel).addEventListener("click", function () {
+        var paths = all("input[type=checkbox]", panel).filter(function (c) { return c.checked; }).map(function (c) { return c.value; });
+        var st = $(".status", panel);
+        if (!paths.length) { st.textContent = "Pick at least one."; return; }
+        all("button", panel).forEach(function (x) { x.disabled = true; });
+        st.textContent = "Saving...";
+        rpc("ci_research", { p_item_key: key, p_paths: paths, p_note: $("textarea", panel).value || null })
+          .then(function () { panel.innerHTML = ""; done(); })
+          .catch(function (e) { st.textContent = e.message; all("button", panel).forEach(function (x) { x.disabled = false; }); });
+      });
+    }).catch(function (e) { panel.innerHTML = '<p class="notice">' + esc(e.message) + "</p>"; });
   }
 
   // ---------------------------------------------------------------- 3. Decisions
@@ -466,7 +532,7 @@
       var strategic = kind(["go", "strategic"]), access = kind(["access", "system"]), research = kind(["likely_out", "research"]);
       var ready = strategic.filter(isReady), later = strategic.filter(function (i) { return !isReady(i); });
       var html = '<h1>Decisions</h1><p class="lede">Only what needs your judgment comes first, with the commercial view of each. Document and system problems are listed apart, ' +
-        "and work for the assistant is on its own page. A decision saved here is kept in this layer only; GovCon OS is not changed.</p>";
+        "and work for the assistant is on its own page. Go and No go are sent to GovCon OS, which every run follows; Research next asks for the checks you pick.</p>";
       html += '<h2 class="section">Decisions for you <span class="count">' + ready.length + "</span></h2>" +
         (ready.length ? '<div class="cards">' + ready.map(decisionCard).join("") + "</div>" : '<div class="panel empty">No decision is ready for you today.</div>');
       if (later.length) html += '<h2 class="section">Not ready for a decision <span class="count">' + later.length + "</span></h2>" +
@@ -490,17 +556,24 @@
       if (aside.length) html += '<h2 class="section">Set aside by your earlier word</h2><div class="panel"><ul class="items">' + aside.map(function (x) {
         return "<li><b>" + esc(x.title) + '</b> <span class="num">' + esc(x.number) + "</span><p>" + esc(x.plain_status) + "</p></li>";
       }).join("") + "</ul></div>";
-      var done = q.decided_here || [];
-      html += '<h2 class="section">Decided here</h2>' + (done.length ? '<div class="panel"><ul class="items">' + done.map(function (d) {
-        return "<li><b>" + esc(DECISION[d.decision] || d.decision) + "</b> &middot; " + esc(d.title || d.item_key) + '<div class="meta">' + esc(d.at_la) + (d.note ? " &middot; " + esc(d.note) : "") + "</div></li>";
-      }).join("") + "</ul></div>" : '<p class="empty">None yet.</p>');
+      html += '<h2 class="section">Decided here</h2><div id="decided-here"><p class="subtle">Loading...</p></div>';
       setMain(html);
+      rpc("ci_recent_actions").then(function (done) {
+        $("#decided-here").innerHTML = (done || []).length ? '<div class="panel"><ul class="items">' + done.map(function (d) { return actionLine(d, true); }).join("") + "</ul></div>"
+          : '<p class="empty">None yet.</p>';
+      }).catch(function (e) { $("#decided-here").innerHTML = '<p class="notice">' + esc(e.message) + "</p>"; });
       all("[data-decide]").forEach(function (b) {
         b.addEventListener("click", function () {
           var card = b.closest(".card");
           var key = card.getAttribute("data-key");
           var note = $("textarea", card).value;
           var st = $(".status", card);
+          if (b.getAttribute("data-decide") === "research_next") {
+            var holder = $(".research", card);
+            if (!holder) { holder = document.createElement("div"); holder.className = "research"; b.closest(".actions").after(holder); }
+            researchPanel(holder, key, note, function () { decisions(); });
+            return;
+          }
           all("button", card).forEach(function (x) { x.disabled = true; });
           st.textContent = "Saving...";
           rpc("ci_decide", { p_item_key: key, p_decision: b.getAttribute("data-decide"), p_note: note || null })

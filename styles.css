@@ -236,3 +236,11 @@ details.ops { margin-top: 14px; }
 table.pri-table td { vertical-align: top; }
 table.pri-table td.item { min-width: 220px; }
 @media (max-width: 760px) { table.pri-table td.item { min-width: 0; } }
+
+/* File 0019: decisions that reach GovCon OS, and the Research next paths. */
+fieldset.paths { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; background: var(--panel); }
+fieldset.paths legend { font-weight: 600; padding: 0 4px; }
+label.path { display: block; margin: 8px 0; line-height: 1.4; cursor: pointer; }
+label.path input { margin-right: 6px; }
+.answer { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 6px 10px; margin: 6px 0; border-radius: 4px; }
+#decide-box .actions, .research .actions { margin-top: 8px; }
