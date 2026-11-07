@@ -106,7 +106,11 @@
     return client.rpc(name, args || {}).then(function (r) { if (r.error) throw r.error; return r.data; });
   }
   function isPhlux() { return (me.seats || []).indexOf("phlux") >= 0; }
-  function ownerText(o) { return o ? (OWNER[o] || o) : "—"; }
+  // "You" is Heather's word for herself; anyone else signed in to the PHLUX seat (Matt) sees "Heather".
+  function ownerText(o) {
+    if (o === "PHLUX" && me && me.label && me.label !== "PHLUX") return "Heather";
+    return o ? (OWNER[o] || o) : "—";
+  }
   function typeText(t) { return TYPE[t] || t || ""; }
   function worthClass(stage) {
     return { approved: "High", qualified: "High", research: "Medium", responded: "Info", bid_sent: "Info", watch: "Info" }[stage] || "Muted";
@@ -157,7 +161,7 @@
 
   function header() {
     var seats = (me && me.seats) || [];
-    var label = seats.indexOf("phlux") >= 0 ? "PHLUX" : seats.indexOf("va") >= 0 ? "Virtual assistant" : "No seat";
+    var label = me.label || (seats.indexOf("phlux") >= 0 ? "PHLUX" : seats.indexOf("va") >= 0 ? "Virtual assistant" : "No seat");
     $("#who").innerHTML = "<span>" + esc(me.email) + " &middot; " + esc(label) + '</span><button class="small" id="signout">Sign out</button>';
     $("#signout").addEventListener("click", function () {
       $("#signout").disabled = true;
@@ -256,7 +260,7 @@
             '<td data-label="Why it is worth our time">' + esc(p.worth) + "</td>" +
             '<td data-label="Business upside">' + esc(p.upside) + "</td>" +
             '<td class="action" data-label="Exact next action">' + esc(p.next_action || "None on record") + "</td>" +
-            '<td class="half" data-label="Owner">' + esc(p.owner) + "</td>" +
+            '<td class="half" data-label="Owner">' + esc(p.owner === "You" ? ownerText("PHLUX") : p.owner) + "</td>" +
             '<td class="half" data-label="Deadline">' + (p.deadline_words ? esc(p.deadline_what + " " + p.deadline_words) : '<span class="subtle">None due</span>') + "</td></tr>";
         }).join("") + "</tbody></table></div>" : "";
       if (h.priorities_note) body += '<p class="' + (pri.length ? "note-line" : "empty") + '">' + esc(h.priorities_note) + "</p>";
