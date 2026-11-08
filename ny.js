@@ -292,7 +292,7 @@
   function recordSlot(slot, row, lead) {
     row.set("Uploaded. Recording it in the database...");
     return rpc("ci_ny_record_upload", { p_slot: slot }).then(function (r) {
-      if (r.status === "duplicate") row.ok("Already received as " + r.file_name + " on " + r.recorded_la + ". Not recorded twice.");
+      if (r.status === "duplicate") row.ok(r.message || ("Already received as " + r.file_name + " on " + r.recorded_la + ". Not recorded twice."));
       else row.ok("Linked to this task " + r.recorded_la + ". " + (lead ? "Sent to GovCon OS for reading." : "Not read yet: PHLUX reads this kind of file with Claude."));
       return true;
     }).catch(function (e) {
@@ -314,7 +314,7 @@
       row.set("Getting an upload place...");
       return callDoor({ action: "upload", task: task, file_name: file.name, bytes: file.size, sha256: sha, mime: file.type || null, for_file: forFile });
     }).then(function (r) {
-      if (r.status === "duplicate") { row.ok("Already received as " + r.file_name + " on " + r.recorded_la + ". Not uploaded again."); return true; }
+      if (r.status === "duplicate") { row.ok(r.message || ("Already received as " + r.file_name + " on " + r.recorded_la + ". Not uploaded again.")); return true; }
       row.set("Uploading 0%");
       return putFile(r.upload_url, file, function (p) { row.set("Uploading " + p + "%"); }).then(function () { return recordSlot(r.slot, row, readByGovcon(i)); });
     }).catch(function (e) { row.bad(e.message || String(e)); return false; });
