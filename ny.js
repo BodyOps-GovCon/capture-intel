@@ -5,7 +5,6 @@
   var cfg = window.CI_CONFIG || {};
   var client = null, me = null, data = null, session = null;
   var FN = (cfg.url || "") + "/functions/v1/needs-you";
-  var OK_EXT = ["pdf", "doc", "docx", "xls", "xlsx", "xlsm", "csv", "txt", "rtf", "zip", "ppt", "pptx", "png", "jpg", "jpeg", "tif", "tiff"];
   var REASONS = [["login", "Login or permission required"], ["not_posted", "Document not posted yet"],
     ["broken_link", "Broken link or portal unavailable"], ["cannot_download", "Document cannot be downloaded"],
     ["unreadable", "File is password protected or unreadable"], ["unclear", "Missing or unclear document requirements"],
@@ -304,7 +303,6 @@
     var row = progressRow(task, file.name);
     var i = item(task);
     if (!i) { row.bad("This task is no longer on the list. Reload the page."); return Promise.resolve(false); }
-    if (OK_EXT.indexOf(ext(file.name)) < 0) { row.bad("This page takes PDF, Word, Excel, PowerPoint, text, CSV, ZIP and image files."); return Promise.resolve(false); }
     if (!file.size) { row.bad("The file is empty."); return Promise.resolve(false); }
     if (data.max_bytes && file.size > data.max_bytes) { row.bad("The file is " + mb(file.size) + ". The most this page takes is " + mb(data.max_bytes) + ". Report it blocked and say the file is too large."); return Promise.resolve(false); }
     var wanted = (i.files_wanted || []).map(function (w) { return w.name; });
