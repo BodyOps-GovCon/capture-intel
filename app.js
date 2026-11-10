@@ -377,7 +377,7 @@
       }).join("");
       setMain('<h1>Opportunities</h1><p class="lede">One recommendation for each, value first: what is worth pursuing, what a short check would decide, ' +
         "what to watch, and what is passed or deprioritized, with the reason. Contract size alone never makes a pursuit. Select a row for the evidence.</p>" +
-        '<div class="tabs" role="group" aria-label="Show">' + tabs + '</div><div class="filters"><label>Search<input type="text" id="f-q" placeholder="Title, number or buyer"></label>' +
+        '<div class="tabs" role="group" aria-label="Show">' + tabs + '</div><div class="filters"><label>Search<input type="search" id="f-q" placeholder="Number or words, from any tab"></label>' +
         '<span class="status" id="f-count" aria-live="polite"></span></div>' +
         '<div class="table-wrap"><table class="opps rtable"><thead><tr><th scope="col">Opportunity</th><th scope="col">Recommendation</th>' +
         '<th scope="col">Business upside</th><th scope="col">Next action</th><th scope="col">Deadline</th><th scope="col">Owner</th></tr></thead>' +
@@ -385,23 +385,51 @@
       all(".tab").forEach(function (b) {
         b.addEventListener("click", function () {
           oppState.filter = b.getAttribute("data-f");
-          all(".tab").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+          if (oppState.q) { oppState.q = ""; $("#f-q").value = ""; }
           drawRows();
         });
       });
-      $("#f-q").addEventListener("input", function (e) { oppState.q = e.target.value.toLowerCase(); drawRows(); });
+      var qBox = $("#f-q");
+      qBox.value = oppState.q || "";
+      qBox.addEventListener("input", function (e) { oppState.q = e.target.value; drawRows(); });
+      qBox.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); oppState.q = qBox.value; drawRows(); } });
       drawRows();
       var key = decodeURIComponent((location.hash || "").slice(1));
       if (key && oppState.items.some(function (x) { return x.item_key === key; })) openItem(key);
     }).catch(fail);
   }
+  // Search: every word typed must be somewhere in the record's number, title, buyer, place, type or value, in any
+  // order. Case, spaces, dashes and other marks are ignored, so "RFB DCS 2064010", "rfb-dcs-2064010" and "2064010"
+  // all find RFB-DCS-2064010. A search looks in every tab, not only the one that is open.
+  function squash(t) { return String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+  function searchWords(q) { return String(q || "").toLowerCase().split(/[^a-z0-9]+/).filter(function (w) { return w; }); }
+  function haystack(i) {
+    if (i._hay === undefined) {
+      var p = i.pursuit || {};
+      i._hay = squash([i.solicitation_number, i.item_key, i.title, i.buyer, i.place, i.opportunity_type, i.value_text,
+        p.next_action, p.reason].join(" "));
+    }
+    return i._hay;
+  }
+  function matches(i, words) {
+    if (!words.length) return true;
+    var h = haystack(i);
+    return words.every(function (w) { return h.indexOf(w) >= 0; });
+  }
   function drawRows() {
     var s = oppState;
-    var rows = s.items.filter(function (i) {
-      return inFilter(i, s.filter) && (!s.q || ((i.solicitation_number || "") + " " + (i.title || "") + " " + (i.buyer || "")).toLowerCase().indexOf(s.q) >= 0);
-    });
+    var words = searchWords(s.q);
+    var searching = words.length > 0;
+    var rows = s.items.filter(function (i) { return (searching || inFilter(i, s.filter)) && matches(i, words); });
     rows.sort(function (a, b) { return (a.rank || 0) - (b.rank || 0); });
-    $("#f-count").textContent = rows.length + " shown of " + s.items.length;
+    all(".tab").forEach(function (b) {
+      var f = b.getAttribute("data-f");
+      var n = s.items.filter(function (i) { return inFilter(i, f) && matches(i, words); }).length;
+      var c = $(".count", b); if (c) c.textContent = n;
+      b.setAttribute("aria-pressed", String(!searching && f === s.filter));
+    });
+    $("#f-count").textContent = searching ? rows.length + " found in all tabs, of " + s.items.length
+      : rows.length + " shown of " + s.items.length;
     $("#rows").innerHTML = rows.length ? rows.map(function (i) {
       var p = i.pursuit || {};
       return '<tr data-key="' + esc(i.item_key) + '" tabindex="0"><td class="item" data-label="Opportunity">' + itemTitle(i) + "</td>" +
@@ -410,7 +438,7 @@
         '<td class="action" data-label="Next action">' + (p.next_action ? esc(clip(p.next_action, 120)) : '<span class="subtle">None</span>') + "</td>" +
         '<td class="half" data-label="Deadline">' + pDeadline(p) + "</td>" +
         '<td class="half" data-label="Owner">' + (p.owner ? esc(ownerText(p.owner)) : '<span class="subtle">None</span>') + "</td></tr>";
-    }).join("") : '<tr class="static"><td colspan="6" class="empty">' + esc(s.q ? "Nothing under this tab matches the search." : EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>";
+    }).join("") : '<tr class="static"><td colspan="6" class="empty">' + esc(searching ? "Nothing matches the search in any tab. Try fewer words, or part of the number." : EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>";
     all("#rows tr[data-key]").forEach(function (tr) {
       tr.addEventListener("click", function () { openItem(tr.getAttribute("data-key")); });
       tr.addEventListener("keydown", function (e) { if (e.key === "Enter") openItem(tr.getAttribute("data-key")); });
