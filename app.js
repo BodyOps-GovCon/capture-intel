@@ -392,7 +392,7 @@
       var qBox = $("#f-q");
       qBox.value = oppState.q || "";
       qBox.addEventListener("input", function (e) { oppState.q = e.target.value; drawRows(); });
-      qBox.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); oppState.q = qBox.value; drawRows(); } });
+      qBox.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); oppState.q = qBox.value; drawRows(true); } });
       drawRows();
       var key = decodeURIComponent((location.hash || "").slice(1));
       if (key && oppState.items.some(function (x) { return x.item_key === key; })) openItem(key);
@@ -416,7 +416,7 @@
     var h = haystack(i);
     return words.every(function (w) { return h.indexOf(w) >= 0; });
   }
-  function drawRows() {
+  function drawRows(now) {
     var s = oppState;
     var words = searchWords(s.q);
     var searching = words.length > 0;
@@ -438,11 +438,77 @@
         '<td class="action" data-label="Next action">' + (p.next_action ? esc(clip(p.next_action, 120)) : '<span class="subtle">None</span>') + "</td>" +
         '<td class="half" data-label="Deadline">' + pDeadline(p) + "</td>" +
         '<td class="half" data-label="Owner">' + (p.owner ? esc(ownerText(p.owner)) : '<span class="subtle">None</span>') + "</td></tr>";
-    }).join("") : '<tr class="static"><td colspan="6" class="empty">' + esc(searching ? "Not found in the " + s.items.length + " records GovCon OS has assessed. This page searches only those records, not every government bid. If this is a bid you want looked at, send the number to Heather." : EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>";
+    }).join("") : (searching
+      ? '<tr class="static"><td colspan="6"><div class="empty">Not in the ' + esc(s.items.length) + ' records on this page.</div><div id="lk" class="lk">' + lookupHtml(s.q) + "</div></td></tr>"
+      : '<tr class="static"><td colspan="6" class="empty">' + esc(EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>");
     all("#rows tr[data-key]").forEach(function (tr) {
       tr.addEventListener("click", function () { openItem(tr.getAttribute("data-key")); });
       tr.addEventListener("keydown", function (e) { if (e.key === "Enter") openItem(tr.getAttribute("data-key")); });
     });
+    if (searching && !rows.length) askLookup(s.q, now);
+  }
+  // When nothing on this page matches, the search asks GovCon OS itself (the lookup function). For a number that
+  // GovCon OS does not hold, GovCon OS looks it up on HigherGov and says why it is not in GovCon OS.
+  var lkCache = {}, lkTimer = null;
+  function lkKey(q) { return searchWords(q).join(" "); }
+  function lookupHtml(q) {
+    if (lkKey(q).replace(/ /g, "").length < 2) return '<p class="subtle">Type more to search GovCon OS.</p>';
+    var a = lkCache[lkKey(q)];
+    if (!a) return '<p class="subtle">Searching GovCon OS' + (/[0-9]/.test(q) ? " and HigherGov" : "") + " …</p>";
+    if (a.error) return '<p class="subtle">' + esc(a.error) + "</p>";
+    var out = "";
+    (a.in_govcon || []).forEach(function (x) {
+      out += '<div class="lk-hit"><b>In GovCon OS</b> (' + esc(x.where) + "): " + esc(x.number || "") + (x.title ? " · " + esc(x.title) : "") +
+        (x.buyer ? '<div class="subtle">' + esc(x.buyer) + "</div>" : "") +
+        '<div>' + esc(x.status || "") + "</div>" + (x.url ? "<div>" + link(x.url, "Open it") + "</div>" : "") + "</div>";
+    });
+    (a.in_highergov || []).forEach(function (x) {
+      var facts = [];
+      if (x.buyer) facts.push(x.buyer);
+      if (x.state) facts.push(x.state);
+      if (x.due) facts.push("Due " + x.due);
+      if (x.set_aside) facts.push("Set aside: " + x.set_aside);
+      out += '<div class="lk-hit"><b>Found on HigherGov, not in GovCon OS:</b> ' + esc(x.number) + (x.title ? " · " + esc(x.title) : "") +
+        (facts.length ? '<div class="subtle">' + esc(facts.join(" · ")) + "</div>" : "") +
+        "<p><b>Why it is not in GovCon OS:</b> " + esc(x.why_not_in_govcon || "Not known.") + "</p>" +
+        (x.summary ? '<p class="subtle">' + esc(clip(x.summary, 400)) + "</p>" : "") +
+        "<div>" + link(x.url, "Open it on HigherGov") + (x.buyer_url ? " · " + link(x.buyer_url, "Open the buyer's posting") : "") + "</div>" +
+        '<p class="subtle">If this is a bid you want looked at, send the number to Heather.</p></div>';
+    });
+    if (out) return out;
+    var h = a.highergov || {};
+    if (!a.number_like) return '<p class="subtle">GovCon OS has nothing with these words either. It looks up HigherGov only for a bid number, so try the number if you have it. If this is a bid you want looked at, send it to Heather.</p>';
+    if (h.asked && !h.found) return '<p class="subtle">Not in GovCon OS, and HigherGov has no notice with this number either' + (h.message ? " (" + esc(h.message) + ")" : "") + ". Check the number, or send it to Heather.</p>";
+    if (h.asked === false && h.why) return '<p class="subtle">Not in GovCon OS. ' + esc(h.why) + "</p>";
+    return '<p class="subtle">Not in GovCon OS or HigherGov. If this is a bid you want looked at, send the number to Heather.</p>';
+  }
+  function askLookup(q, now) {
+    var k = lkKey(q);
+    if (!k || k.replace(/ /g, "").length < 2) return;
+    if (k in lkCache && !(now && lkCache[k] && lkCache[k].error)) return; // asked already; Enter asks again after an error
+    clearTimeout(lkTimer);
+    lkTimer = setTimeout(function () {
+      if (lkKey(oppState.q) !== k) return;
+      lkCache[k] = null; // asking now
+      client.auth.getSession().then(function (r) {
+        var sess = r && r.data && r.data.session;
+        if (!sess) throw new Error("Sign in again to search GovCon OS.");
+        return fetch((cfg.url || "") + "/functions/v1/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: cfg.key, Authorization: "Bearer " + sess.access_token },
+          body: JSON.stringify({ q: q })
+        }).then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (b) {
+            if (!res.ok) throw new Error(b.error || "GovCon OS did not answer the search. Try again in a minute.");
+            return b;
+          });
+        });
+      }).then(function (b) { lkCache[k] = b; }, function (e) { lkCache[k] = { error: e.message || "The search could not be finished." }; })
+        .then(function () {
+          var box = $("#lk");
+          if (box && lkKey(oppState.q) === k) box.innerHTML = lookupHtml(oppState.q);
+        });
+    }, now ? 0 : 900);
   }
   function closeItem() {
     $("#drawer").innerHTML = "";

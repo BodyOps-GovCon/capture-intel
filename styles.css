@@ -244,3 +244,6 @@ label.path { display: block; margin: 8px 0; line-height: 1.4; cursor: pointer; }
 label.path input { margin-right: 6px; }
 .answer { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 6px 10px; margin: 6px 0; border-radius: 4px; }
 #decide-box .actions, .research .actions { margin-top: 8px; }
+.lk { margin-top: 8px; }
+.lk-hit { border-left: 3px solid var(--muted); padding: 6px 10px; margin: 8px 0; }
+.lk-hit p { margin: 6px 0; }
