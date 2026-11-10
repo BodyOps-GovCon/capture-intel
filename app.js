@@ -438,7 +438,7 @@
         '<td class="action" data-label="Next action">' + (p.next_action ? esc(clip(p.next_action, 120)) : '<span class="subtle">None</span>') + "</td>" +
         '<td class="half" data-label="Deadline">' + pDeadline(p) + "</td>" +
         '<td class="half" data-label="Owner">' + (p.owner ? esc(ownerText(p.owner)) : '<span class="subtle">None</span>') + "</td></tr>";
-    }).join("") : '<tr class="static"><td colspan="6" class="empty">' + esc(searching ? "Nothing matches the search in any tab. Try fewer words, or part of the number." : EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>";
+    }).join("") : '<tr class="static"><td colspan="6" class="empty">' + esc(searching ? "Not found in the " + s.items.length + " records GovCon OS has assessed. This page searches only those records, not every government bid. If this is a bid you want looked at, send the number to Heather." : EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>";
     all("#rows tr[data-key]").forEach(function (tr) {
       tr.addEventListener("click", function () { openItem(tr.getAttribute("data-key")); });
       tr.addEventListener("keydown", function (e) { if (e.key === "Enter") openItem(tr.getAttribute("data-key")); });
