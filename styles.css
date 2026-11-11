@@ -259,3 +259,8 @@ label.path input { margin-right: 6px; }
 .board .card .meta { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .stats.week { flex-wrap: wrap; }
 .board .chip { white-space: normal; }
+/* Research Completed on Today (file 0024) */
+details.readans { margin: 8px 0; }
+details.readans summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.answer-text { white-space: pre-line; max-width: 90ch; }
+li.rdone .actions { margin-top: 8px; }

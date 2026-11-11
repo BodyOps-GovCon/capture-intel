@@ -273,6 +273,50 @@
       '<div class="subtle">Owner: ' + esc(ownerText(boardOwner(i))) + " &middot; " + when + "</div></li>";
   }
 
+  // Research Completed (file 0024). Heather Anderson, 11 November 2026: the research she asked for shows on Today, where
+  // she reads the answer and decides. An item stays here until Go or No go, or until she asks for more research.
+  function researchCompleted(list) {
+    list = list.slice().sort(function (a, b) { return String(b.answered_at || "").localeCompare(String(a.answered_at || "")); });
+    var count = '<span class="count">' + list.length + "</span>";
+    if (!list.length) return section("research-done", "Research Completed", '<p class="empty">No research answer is waiting for your decision.</p>', count);
+    return section("research-done", "Research Completed",
+      '<p class="subtle">Answers to the research asked for from this dashboard. Each stays here until Go or No go, or until more research is asked for.</p>' +
+      '<ul class="items">' + list.map(function (a) {
+        var txt = a.answer || "", m = /(?:^|\n)\s*For your decision:\s*([\s\S]+)$/.exec(txt);
+        var asked = (a.paths || []).map(function (x) { return PATH_LABEL[x] || x; }).join("; ");
+        return '<li class="rdone" data-key="' + esc(a.item_key) + '"><a class="title" href="opportunities.html#' + encodeURIComponent(a.item_key) + '">' +
+          esc(a.title || a.number) + '</a><div class="num">' + esc(a.number || "") + "</div>" +
+          '<div class="meta">' + chip("Research completed", "High") + (a.column === "archive" ? chip("In the archive", "Muted") : "") +
+          "<span>Answered " + esc(a.answered_la || shortDate(a.answered_at)) + "</span></div>" +
+          (asked ? '<p class="subtle">Asked' + (a.asked_by ? " by " + esc(a.asked_by === "rules" ? "GovCon OS" : a.asked_by) : "") + ": " + esc(asked) + "</p>" : "") +
+          (a.note ? '<p class="subtle">Your note: ' + esc(a.note) + "</p>" : "") +
+          (m ? '<p><b>For your decision:</b> ' + esc(m[1].trim()) + "</p>" : "") +
+          (txt ? '<details class="readans"><summary>Read the full answer</summary><div class="answer"><p class="answer-text">' + esc(txt) + "</p>" +
+            (a.answer_sources ? '<p class="subtle answer-text">Sources: ' + esc(a.answer_sources) + "</p>" : "") + "</div></details>"
+            : '<p>GovCon OS answered the research. <a href="decisions.html">Read it on the Decisions page.</a></p>') +
+          decideButtons() + "</li>";
+      }).join("") + "</ul>", count);
+  }
+  function wireResearchCompleted() {
+    all("#research-done [data-decide]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var card = b.closest(".rdone"), key = card.getAttribute("data-key");
+        var note = $(".addnote textarea", card).value, st = $(".status", card);
+        if (b.getAttribute("data-decide") === "research_next") {
+          var holder = $(".research", card);
+          if (!holder) { holder = document.createElement("div"); holder.className = "research"; b.closest(".actions").after(holder); }
+          researchPanel(holder, key, note, function () { briefing(); });
+          return;
+        }
+        all("button", card).forEach(function (x) { x.disabled = true; });
+        st.textContent = "Saving...";
+        rpc("ci_decide", { p_item_key: key, p_decision: b.getAttribute("data-decide"), p_note: note || null })
+          .then(function () { briefing(); })
+          .catch(function (e) { st.textContent = e.message; all("button", card).forEach(function (x) { x.disabled = false; }); });
+      });
+    });
+  }
+
   // ---------------------------------------------------------------- 1. Today (home)
   function briefing() {
     if (needsPhlux()) return;
@@ -292,12 +336,9 @@
           return '<li><a class="title" href="needs-you.html">' + esc(k.title || k.number) + '</a><div class="num">' + esc(k.number || "") + "</div>" +
             '<div class="meta">' + chip("Blocked " + plural(k.days, "day"), k.days >= 2 ? "Low" : "Medium") + "<span>" + esc([closes, due].filter(Boolean).join(" · ")) + "</span></div>" +
             "<p><b>" + esc(k.reason) + ":</b> " + esc(k.notes || "") + ' <span class="subtle">Reported by ' + esc(k.by) + ".</span></p></li>";
-        }).concat((wy.answers || []).map(function (a) {
-          return '<li><a class="title" href="decisions.html">' + esc(a.title || a.number) + '</a><div class="num">' + esc(a.number || "") + "</div>" +
-            '<div class="meta">' + chip("Research answer back", "Info") + "<span>Answered " + esc(shortDate(a.answered_at)) + "</span></div>" +
-            "<p>GovCon OS answered the research. Go, No go or Research next is yours.</p></li>";
-        }));
+        });
         html += section("waiting", "Waiting on you", wb.length ? '<ul class="items">' + wb.join("") + "</ul>" : '<p class="empty">Nothing is waiting on you.</p>');
+        html += researchCompleted(wy.answers || []);
       }
       if (bd) html += weekStrip(bd.week);
 
@@ -403,6 +444,7 @@
         "<li>" + plural(num(dq.items_with_no_value_on_record), "item has", "items have") + " no contract value on record</li>" +
         "<li>" + plural(num(dq.files_still_unread), "required file is", "required files are") + " still unread</li></ul></div></div></details>";
       setMain(html);
+      wireResearchCompleted();
     }).catch(fail);
   }
 
