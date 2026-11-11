@@ -102,8 +102,17 @@
     if (/ci_home/i.test(String(m || "")) && /(Could not find|does not exist)/i.test(String(m || ""))) { old0008(); return; }
     setMain('<div class="panel"><h2>Something went wrong</h2><p>' + esc(m) + "</p><p>Reload the page. If it happens again, tell Claude what this box says.</p></div>");
   }
-  function rpc(name, args) {
-    return client.rpc(name, args || {}).then(function (r) { if (r.error) throw r.error; return r.data; });
+  function rpc(name, args, retried) {
+    return client.rpc(name, args || {}).then(function (r) {
+      if (r.error) {
+        // a copy of GovCon OS loading can slow the database for a few seconds: wait and ask once more
+        if (!retried && /statement timeout|canceling statement/i.test(String(r.error.message || ""))) {
+          return new Promise(function (ok) { setTimeout(ok, 4000); }).then(function () { return rpc(name, args, true); });
+        }
+        throw r.error;
+      }
+      return r.data;
+    });
   }
   function isPhlux() { return (me.seats || []).indexOf("phlux") >= 0; }
   // "You" is Heather's word for herself; anyone else signed in to the PHLUX seat (Matt) sees "Heather".
