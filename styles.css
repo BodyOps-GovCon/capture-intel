@@ -247,3 +247,14 @@ label.path input { margin-right: 6px; }
 .lk { margin-top: 8px; }
 .lk-hit { border-left: 3px solid var(--muted); padding: 6px 10px; margin: 8px 0; }
 .lk-hit p { margin: 6px 0; }
+/* the live board (file 0022) */
+.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+.board .col { background: var(--panel, transparent); border: 1px solid var(--line, #333); border-radius: 8px; padding: 10px; min-width: 0; }
+.board .col h2 { font-size: 15px; margin: 0 0 8px; }
+.board .col .count { color: var(--muted); font-weight: normal; }
+.board .cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.board .card { border: 1px solid var(--line, #333); border-radius: 6px; padding: 8px; cursor: pointer; }
+.board .card:hover, .board .card:focus { outline: 2px solid var(--accent, #4aa); }
+.board .card .title { font-weight: 600; }
+.board .card .meta { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.stats.week { flex-wrap: wrap; }

@@ -240,14 +240,67 @@
   function afterGo(a) { return (a || "").replace(/^Give your go or no go\.\s*(Next step on record:\s*)?/, ""); }
   function firstSentence(a) { var m = /^(.+?[.?!])(\s|$)/.exec(a || ""); return m ? m[1] : (a || ""); }
 
+  // ---------------------------------------------------------------- The live board (file 0022, 11 November 2026)
+  // Heather Anderson's seven of 11 November 2026: Archive, an owner and a next date on every live item, watch items hidden
+  // until their check date, days with no change, the "This week" strip, the board by stage, what is blocked on her first.
+  function weekStrip(w) {
+    if (!w) return "";
+    var st = function (n, label) { return '<div class="stat"><b>' + esc(num(n)) + "</b><span>" + esc(label) + "</span></div>"; };
+    return section("week", "This week", '<div class="stats week">' +
+      st(w.new_found, "new opportunities found") + st(w.files_uploaded, "files uploaded") + st(w.files_read, "files read in full") +
+      st(w.research_answered, "research answers back") + st(w.decisions, "decisions made") + st(w.tasks_done, "tasks finished") +
+      st(w.bids_sent, "bids sent") + st(w.asked_to_rule, "sent to be ruled on") + "</div>" +
+      '<p class="subtle">The last 7 days, counted from each record.</p>');
+  }
+  function stillLabel(b) {
+    if (!b || b.days_still == null || b.column === "archive") return "";
+    if (b.asked_to_rule_at) return chip("Sent to GovCon OS to be ruled on " + shortDate(b.asked_to_rule_at, true), "Info");
+    var d = b.days_still;
+    var words = d < 1 ? "Changed today" : (b.since_first_copy ? "No change since " + shortDate(b.last_change_at, true) + " (first copy)"
+      : "No change in " + d + (d === 1 ? " day" : " days"));
+    return chip(words, d >= 7 ? "Low" : (d >= 4 ? "Medium" : "Info"));
+  }
+  function boardOwner(i) {
+    var b = i.board || {}, p = i.pursuit || {};
+    return b.column === "archive" ? null : (b.owner || p.owner);
+  }
+  var COLUMNS = [["new", "New"], ["researching", "Researching"], ["decision", "Your decision"], ["drafting", "Drafting"],
+    ["submitted", "Submitted"], ["won_lost", "Won or lost"]];
+  function boardCard(i) {
+    var b = i.board || {};
+    var when = b.next_date ? esc(b.next_date_what || "") + ": " + esc(shortDate(b.next_date, b.next_date_what === "Check again")) : "No date";
+    return '<li class="card" data-key="' + esc(i.item_key) + '" tabindex="0">' + itemTitle(i) +
+      '<div class="meta">' + recChip(i.pursuit) + stillLabel(b) + (b.won != null ? chip(b.won ? "Won" : "Lost to " + (b.winner || "another company"), b.won ? "High" : "Muted") : "") + "</div>" +
+      '<div class="subtle">Owner: ' + esc(ownerText(boardOwner(i))) + " &middot; " + when + "</div></li>";
+  }
+
   // ---------------------------------------------------------------- 1. Today (home)
   function briefing() {
     if (needsPhlux()) return;
-    rpc("ci_home").then(function (h) {
+    Promise.all([rpc("ci_home"), rpc("ci_waiting_on_you").catch(function () { return null; }),
+                 rpc("ci_board").catch(function () { return null; })]).then(function (got) {
+      var h = got[0], wy = got[1], bd = got[2];
       if (!h) { setMain('<div class="panel">Nothing to show yet. A copy has to be loaded first.</div>'); return; }
+      var owners = {};
+      ((bd && bd.items) || []).forEach(function (i) { owners[i.item_key] = boardOwner(i); });
       if (!h.views_version || String(h.views_version).indexOf("0010") !== 0) { old0008(); return; }
       var html = '<h1>Today</h1><p class="lede">Built ' + esc(h.built_at_la) + " from the copy shown above, with the decisions and task updates saved here. " +
         "Value first, urgency second, administrative steps last. Times are Los Angeles time.</p>";
+      // 0. what is blocked on her, first
+      if (wy) {
+        var wb = (wy.blocks || []).map(function (k) {
+          var due = k.task_due_at ? "Task due " + shortDate(k.task_due_at) : "", closes = k.closes_at ? "Closes " + shortDate(k.closes_at) : "";
+          return '<li><a class="title" href="needs-you.html">' + esc(k.title || k.number) + '</a><div class="num">' + esc(k.number || "") + "</div>" +
+            '<div class="meta">' + chip("Blocked " + plural(k.days, "day"), k.days >= 2 ? "Low" : "Medium") + "<span>" + esc([closes, due].filter(Boolean).join(" · ")) + "</span></div>" +
+            "<p><b>" + esc(k.reason) + ":</b> " + esc(k.notes || "") + ' <span class="subtle">Reported by ' + esc(k.by) + ".</span></p></li>";
+        }).concat((wy.answers || []).map(function (a) {
+          return '<li><a class="title" href="decisions.html">' + esc(a.title || a.number) + '</a><div class="num">' + esc(a.number || "") + "</div>" +
+            '<div class="meta">' + chip("Research answer back", "Info") + "<span>Answered " + esc(shortDate(a.answered_at)) + "</span></div>" +
+            "<p>GovCon OS answered the research. Go, No go or Research next is yours.</p></li>";
+        }));
+        html += section("waiting", "Waiting on you", wb.length ? '<ul class="items">' + wb.join("") + "</ul>" : '<p class="empty">Nothing is waiting on you.</p>');
+      }
+      if (bd) html += weekStrip(bd.week);
 
       // A. priorities: at most three, value first, in the six columns
       var pri = h.priorities || [];
@@ -260,7 +313,7 @@
             '<td data-label="Why it is worth our time">' + esc(p.worth) + "</td>" +
             '<td data-label="Business upside">' + esc(p.upside) + "</td>" +
             '<td class="action" data-label="Exact next action">' + esc(p.next_action || "None on record") + "</td>" +
-            '<td class="half" data-label="Owner">' + esc(p.owner === "You" ? ownerText("PHLUX") : p.owner) + "</td>" +
+            '<td class="half" data-label="Owner">' + esc(p.owner === "You" ? ownerText("PHLUX") : (p.owner === "Not assigned" && owners[p.item_key] ? ownerText(owners[p.item_key]) : p.owner)) + "</td>" +
             '<td class="half" data-label="Deadline">' + (p.deadline_words ? esc(p.deadline_what + " " + p.deadline_words) : '<span class="subtle">None due</span>') + "</td></tr>";
         }).join("") + "</tbody></table></div>" : "";
       if (h.priorities_note) body += '<p class="' + (pri.length ? "note-line" : "empty") + '">' + esc(h.priorities_note) + "</p>";
@@ -284,7 +337,7 @@
           '<p><b>Upside:</b> ' + esc(clip(x.upside, 150)) + "</p>" +
           (x.reason ? '<p class="why">' + esc(clip(x.reason, 170)) + "</p>" : "") +
           "<p><b>Next:</b> " + esc(clip(x.next_action, 150)) + "</p>" +
-          '<div class="meta"><span>' + esc((x.deadline_what || "") + " " + (x.deadline_words || "")) + "</span><span>Owner: " + esc(ownerText(x.owner)) + "</span></div></li>";
+          '<div class="meta"><span>' + esc((x.deadline_what || "") + " " + (x.deadline_words || "")) + "</span><span>Owner: " + esc(ownerText(owners[x.item_key] || x.owner)) + "</span></div></li>";
       };
       var rc = h.recommendation_counts || {};
       var bbody = '<div class="grid two inner"><div><h3>Best to pursue, or waiting on the government</h3>' + (q.length ? '<ul class="items">' + q.map(row).join("") + "</ul>"
@@ -355,33 +408,41 @@
   }
 
   // ---------------------------------------------------------------- 2. Opportunities
-  var FILTERS = [
-    ["pursue", "Best to pursue"], ["investigate", "Investigate briefly"], ["watch", "Watch"], ["pass", "Pass / deprioritize"], ["all", "All records"]];
-  var EMPTY = {
-    pursue: "None is recommended for pursuit right now. Prospects waiting on the government are under Watch; opportunities worth a short check are under Investigate briefly.",
-    investigate: "Nothing needs a short check right now.", watch: "Nothing to watch.", pass: "Nothing is passed or deprioritized.", all: "No records." };
-  var oppState = { items: [], filter: "pursue", q: "", rules: null };
+  var FILTERS = [["board", "Board"], ["watching", "Watching"], ["archive", "Archive"], ["all", "All records"]];
+  var EMPTY = { board: "Nothing is live.", watching: "Nothing is waiting for a check date.", archive: "Nothing is archived.", all: "No records." };
+  var oppState = { items: [], filter: "board", q: "", rules: null, boardRules: null, week: null };
   function inFilter(i, f) {
-    var p = i.pursuit || {};
-    return f === "all" ? true : p.recommendation === f;
+    var c = (i.board || {}).column;
+    if (f === "all") return true;
+    if (f === "watching") return c === "watching";
+    if (f === "archive") return c === "archive";
+    return c !== "watching" && c !== "archive";
   }
   function opportunities() {
     if (needsPhlux()) return;
-    rpc("ci_opportunities").then(function (items) {
-      if (items && items.length && !items[0].pursuit) { old0008(); return; }
-      oppState.items = items || [];
+    rpc("ci_board").then(function (bd) {
+      var items = (bd && bd.items) || [];
+      if (items.length && !items[0].pursuit) { old0008(); return; }
+      oppState.items = items;
+      oppState.week = bd.week;
+      oppState.boardRules = bd.rules || {};
       oppState.rules = (oppState.items.filter(function (i) { return i.pursuit_rules; })[0] || {}).pursuit_rules || null;
       var tabs = FILTERS.map(function (f) {
         var n = oppState.items.filter(function (i) { return inFilter(i, f[0]); }).length;
         return '<button class="tab" data-f="' + f[0] + '" aria-pressed="' + (f[0] === oppState.filter) + '">' + esc(f[1]) + ' <span class="count">' + n + "</span></button>";
       }).join("");
-      setMain('<h1>Opportunities</h1><p class="lede">One recommendation for each, value first: what is worth pursuing, what a short check would decide, ' +
-        "what to watch, and what is passed or deprioritized, with the reason. Contract size alone never makes a pursuit. Select a row for the evidence.</p>" +
+      var br = oppState.boardRules;
+      setMain('<h1>Opportunities</h1><p class="lede">Live items by stage. Each card shows its owner, its next date and how long it has gone ' +
+        "without a change. Watch items wait under Watching until their check date; passed and closed items are under Archive. Select a card for the evidence.</p>" +
+        weekStrip(oppState.week) +
         '<div class="tabs" role="group" aria-label="Show">' + tabs + '</div><div class="filters"><label>Search<input type="search" id="f-q" placeholder="Number or words, from any tab"></label>' +
         '<span class="status" id="f-count" aria-live="polite"></span></div>' +
         '<div class="table-wrap"><table class="opps rtable"><thead><tr><th scope="col">Opportunity</th><th scope="col">Recommendation</th>' +
         '<th scope="col">Business upside</th><th scope="col">Next action</th><th scope="col">Deadline</th><th scope="col">Owner</th></tr></thead>' +
-        '<tbody id="rows"></tbody></table></div><div id="drawer"></div>' + rule((oppState.rules || {}).recommendation, "How the recommendation is chosen"));
+        '<tbody id="rows"></tbody></table></div><div id="board" class="board"></div><div id="drawer"></div>' +
+        rule(br.owner, "How the owner is chosen") + rule(br.watching, "When a watch item comes back") + rule(br.still, "How days with no change are counted") +
+        rule(br.rule, "What happens after 7 days with no change") + rule(br.archive, "What is in the Archive") +
+        rule((oppState.rules || {}).recommendation, "How the recommendation is chosen"));
       all(".tab").forEach(function (b) {
         b.addEventListener("click", function () {
           oppState.filter = b.getAttribute("data-f");
@@ -430,6 +491,22 @@
     });
     $("#f-count").textContent = searching ? rows.length + " found in all tabs, of " + s.items.length
       : rows.length + " shown of " + s.items.length;
+    var boardView = !searching && s.filter === "board";
+    $(".table-wrap").style.display = boardView ? "none" : "";
+    $("#board").style.display = boardView ? "" : "none";
+    if (boardView) {
+      $("#board").innerHTML = COLUMNS.map(function (c) {
+        var cards = rows.filter(function (i) { return (i.board || {}).column === c[0]; });
+        if (c[0] === "won_lost" && !cards.length) return "";
+        return '<section class="col"><h2>' + esc(c[1]) + ' <span class="count">' + cards.length + "</span></h2>" +
+          (cards.length ? '<ul class="cards">' + cards.map(boardCard).join("") + "</ul>" : '<p class="empty">None.</p>') + "</section>";
+      }).join("");
+      all("#board .card").forEach(function (li) {
+        li.addEventListener("click", function () { openItem(li.getAttribute("data-key")); });
+        li.addEventListener("keydown", function (e) { if (e.key === "Enter") openItem(li.getAttribute("data-key")); });
+      });
+      return;
+    }
     $("#rows").innerHTML = rows.length ? rows.map(function (i) {
       var p = i.pursuit || {};
       return '<tr data-key="' + esc(i.item_key) + '" tabindex="0"><td class="item" data-label="Opportunity">' + itemTitle(i) + "</td>" +
@@ -437,7 +514,8 @@
         '<td data-label="Business upside">' + esc(clip(p.upside, 90)) + "</td>" +
         '<td class="action" data-label="Next action">' + (p.next_action ? esc(clip(p.next_action, 120)) : '<span class="subtle">None</span>') + "</td>" +
         '<td class="half" data-label="Deadline">' + pDeadline(p) + "</td>" +
-        '<td class="half" data-label="Owner">' + (p.owner ? esc(ownerText(p.owner)) : '<span class="subtle">None</span>') + "</td></tr>";
+        '<td class="half" data-label="Owner">' + (boardOwner(i) ? esc(ownerText(boardOwner(i))) : '<span class="subtle">None</span>') +
+        '<div>' + stillLabel(i.board) + "</div></td></tr>";
     }).join("") : (searching
       ? '<tr class="static"><td colspan="6"><div class="empty">Not in the ' + esc(s.items.length) + ' records on this page.</div><div id="lk" class="lk">' + lookupHtml(s.q) + "</div></td></tr>"
       : '<tr class="static"><td colspan="6" class="empty">' + esc(EMPTY[s.filter] || "Nothing under this tab.") + "</td></tr>");
@@ -528,7 +606,9 @@
       '<h3>Where it stands</h3><dl class="kv">' +
       (v.why ? "<dt>Why it may fit</dt><dd>" + esc(v.why) + "</dd>" : "") +
       (p.next_action ? "" : "<dt>Next action</dt><dd>None</dd>") +
-      "<dt>Owner</dt><dd>" + (p.owner ? ownerOf(p) : "None") + "</dd>" +
+      "<dt>Owner</dt><dd>" + (boardOwner(i) ? esc(ownerText(boardOwner(i))) + ((i.board || {}).owner_why ? '<div class="subtle">' + esc(i.board.owner_why) + "</div>" : "") : "None") + "</dd>" +
+      ((i.board || {}).last_change_at && i.board.column !== "archive" ? "<dt>Last change</dt><dd>" + stillLabel(i.board) + " " + esc(shortDate(i.board.last_change_at)) + "</dd>" : "") +
+      ((i.board || {}).check_on ? "<dt>Check again</dt><dd>" + esc(shortDate(i.board.check_on, true)) + "</dd>" : "") +
       "<dt>Deadline</dt><dd>" + esc(p.deadline_words ? p.deadline_what + ": " + p.deadline_words : "None due") + "</dd>" +
       (v.decision_overdue_since ? "<dt>Overdue</dt><dd>The research asked for your decision by " + esc(v.decision_overdue_since) + ".</dd>" : "") +
       (v.closes_words ? "<dt>Closes on SAM.gov</dt><dd>" + esc(v.closes_words) + "</dd>" : "") +
