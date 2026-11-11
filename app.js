@@ -256,8 +256,7 @@
     if (!b || b.days_still == null || b.column === "archive") return "";
     if (b.asked_to_rule_at) return chip("Sent to GovCon OS to be ruled on " + shortDate(b.asked_to_rule_at, true), "Info");
     var d = b.days_still;
-    var words = d < 1 ? "Changed today" : (b.since_first_copy ? "No change since " + shortDate(b.last_change_at, true) + " (first copy)"
-      : "No change in " + d + (d === 1 ? " day" : " days"));
+    var words = d < 1 ? "Changed today" : "No change in " + d + (b.since_first_copy ? " days or more" : (d === 1 ? " day" : " days"));
     return chip(words, d >= 7 ? "Low" : (d >= 4 ? "Medium" : "Info"));
   }
   function boardOwner(i) {

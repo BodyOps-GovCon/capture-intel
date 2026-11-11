@@ -258,3 +258,4 @@ label.path input { margin-right: 6px; }
 .board .card .title { font-weight: 600; }
 .board .card .meta { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .stats.week { flex-wrap: wrap; }
+.board .chip { white-space: normal; }
