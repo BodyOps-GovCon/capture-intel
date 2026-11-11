@@ -298,7 +298,7 @@
           '<div class="meta">' + chip("Research completed", "High") + (a.column === "archive" ? chip("In the archive", "Muted") : "") +
           "<span>Answered " + esc(a.answered_la || shortDate(a.answered_at)) + "</span></div>" +
           (asked ? '<p class="subtle">Asked' + (a.asked_by ? " by " + esc(a.asked_by === "rules" ? "GovCon OS" : a.asked_by) : "") + ": " + esc(asked) + "</p>" : "") +
-          (a.note ? '<p class="subtle">Your note: ' + esc(a.note) + "</p>" : "") +
+          (a.note ? '<p class="subtle">' + (a.asked_by === "rules" ? "Note from GovCon OS: " : "Your note: ") + esc(a.note) + "</p>" : "") +
           (m ? '<p><b>For your decision:</b> ' + esc(m[1].trim()) + "</p>" : "") +
           (txt ? '<details class="readans"><summary>Read the full answer</summary><div class="answer"><p class="answer-text">' + esc(txt) + "</p>" +
             (a.answer_sources ? '<p class="subtle answer-text">Sources: ' + esc(a.answer_sources) + "</p>" : "") + "</div></details>"
