@@ -272,14 +272,21 @@
     var b = i.board || {}, p = i.pursuit || {};
     return b.column === "archive" ? null : (b.owner || p.owner);
   }
+  // "Subcontract" (file 0025). Heather Anderson, 13 November 2026: a notice or ending contract whose current holder can
+  // compete is not a pass; it moves to the subcontract list and the holder gets a teaming email draft.
   var COLUMNS = [["new", "New"], ["researching", "Researching"], ["decision", "Your decision"], ["drafting", "Drafting"],
-    ["submitted", "Submitted"], ["won_lost", "Won or lost"]];
+    ["submitted", "Submitted"], ["subcontract", "Subcontract"], ["won_lost", "Won or lost"]];
+  function subLine(b) {
+    var s = (b || {}).subcontract;
+    if (!s) return "";
+    return '<div class="subtle">Holder: ' + esc(s.holder || "not named") + " &middot; " + esc(s.step || "") + "</div>";
+  }
   function boardCard(i) {
     var b = i.board || {};
     var when = b.next_date ? esc(b.next_date_what || "") + ": " + esc(shortDate(b.next_date, b.next_date_what === "Check again")) : "No date";
     return '<li class="card" data-key="' + esc(i.item_key) + '" tabindex="0">' + itemTitle(i) +
       '<div class="meta">' + recChip(i.pursuit) + stillLabel(b) + (b.won != null ? chip(b.won ? "Won" : "Lost to " + (b.winner || "another company"), b.won ? "High" : "Muted") : "") + "</div>" +
-      '<div class="subtle">Owner: ' + esc(ownerText(boardOwner(i))) + " &middot; " + when + "</div></li>";
+      subLine(b) + '<div class="subtle">Owner: ' + esc(ownerText(boardOwner(i))) + " &middot; " + when + "</div></li>";
   }
 
   // Research Completed (file 0024). Heather Anderson, 11 November 2026: the research she asked for shows on Today, where
@@ -458,14 +465,15 @@
   }
 
   // ---------------------------------------------------------------- 2. Opportunities
-  var FILTERS = [["board", "Board"], ["watching", "Watching"], ["archive", "Archive"], ["all", "All records"]];
-  var EMPTY = { board: "Nothing is live.", watching: "Nothing is waiting for a check date.", archive: "Nothing is archived.", all: "No records." };
+  var FILTERS = [["board", "Board"], ["subcontract", "Subcontract"], ["watching", "Watching"], ["archive", "Archive"], ["all", "All records"]];
+  var EMPTY = { board: "Nothing is live.", subcontract: "Nothing is on the subcontract list.", watching: "Nothing is waiting for a check date.", archive: "Nothing is archived.", all: "No records." };
   var oppState = { items: [], filter: "board", q: "", rules: null, boardRules: null, week: null };
   function inFilter(i, f) {
     var c = (i.board || {}).column;
     if (f === "all") return true;
     if (f === "watching") return c === "watching";
     if (f === "archive") return c === "archive";
+    if (f === "subcontract") return c === "subcontract";
     return c !== "watching" && c !== "archive";
   }
   function opportunities() {
@@ -657,6 +665,10 @@
       (v.why ? "<dt>Why it may fit</dt><dd>" + esc(v.why) + "</dd>" : "") +
       (p.next_action ? "" : "<dt>Next action</dt><dd>None</dd>") +
       "<dt>Owner</dt><dd>" + (boardOwner(i) ? esc(ownerText(boardOwner(i))) + ((i.board || {}).owner_why ? '<div class="subtle">' + esc(i.board.owner_why) + "</div>" : "") : "None") + "</dd>" +
+      ((i.board || {}).subcontract ? "<dt>Subcontract</dt><dd>Holder: " + esc(i.board.subcontract.holder || "not named") + '<div class="subtle">' +
+        esc(i.board.subcontract.step || "") + (i.board.subcontract.drafted_at ? ". Drafted " + esc(shortDate(i.board.subcontract.drafted_at)) : "") +
+        (i.board.subcontract.sent_at ? ". Sent " + esc(shortDate(i.board.subcontract.sent_at)) : "") +
+        (i.board.subcontract.replied_at ? ". Answered " + esc(shortDate(i.board.subcontract.replied_at)) : "") + "</div></dd>" : "") +
       ((i.board || {}).last_change_at && i.board.column !== "archive" ? "<dt>Last change</dt><dd>" + stillLabel(i.board) + " " + esc(shortDate(i.board.last_change_at)) + "</dd>" : "") +
       ((i.board || {}).check_on ? "<dt>Check again</dt><dd>" + esc(shortDate(i.board.check_on, true)) + "</dd>" : "") +
       "<dt>Deadline</dt><dd>" + esc(p.deadline_words ? p.deadline_what + ": " + p.deadline_words : "None due") + "</dd>" +
