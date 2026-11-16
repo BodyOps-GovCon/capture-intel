@@ -258,12 +258,12 @@
     return section("week", "This week", '<div class="stats week">' +
       st(w.new_found, "new opportunities found") + st(w.files_uploaded, "files uploaded") + st(w.files_read, "files read in full") +
       st(w.research_answered, "research answers back") + st(w.decisions, "decisions made") + st(w.tasks_done, "tasks finished") +
-      st(w.bids_sent, "bids sent") + st(w.asked_to_rule, "sent to be ruled on") + "</div>" +
-      '<p class="subtle">The last 7 days, counted from each record.</p>');
+      st(w.bids_sent, "bids sent") + st(w.asked_to_rule, "stalled items sent for a ruling") + "</div>" +
+      '<p class="subtle">The last 7 days, counted from each record. Stalled items sent for a ruling: items with no change in 7 days that GovCon OS was asked, automatically, to rule on (the next step or a pass). Its answers are under Research Completed until you decide.</p>');
   }
   function stillLabel(b) {
     if (!b || b.days_still == null || b.column === "archive") return "";
-    if (b.asked_to_rule_at) return chip("Sent to GovCon OS to be ruled on " + shortDate(b.asked_to_rule_at, true), "Info");
+    if (b.asked_to_rule_at) return chip("No change in 7 days: sent to GovCon OS for a ruling " + shortDate(b.asked_to_rule_at, true), "Info");
     var d = b.days_still;
     var words = d < 1 ? "Changed today" : "No change in " + d + (b.since_first_copy ? " days or more" : (d === 1 ? " day" : " days"));
     return chip(words, d >= 7 ? "Low" : (d >= 4 ? "Medium" : "Info"));
