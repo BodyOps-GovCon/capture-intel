@@ -155,7 +155,7 @@
     return '<div class="nyblock' + (b.resolved ? " cleared" : "") + '"><b>' + (b.resolved ? "Was blocked: " : "Blocked: ") + esc(b.reason_label) + "</b>" +
       (b.notes ? "<p>" + esc(b.notes) + "</p>" : "") +
       '<div class="subtle">Reported by ' + esc(b.by) + " " + esc(b.reported_la) + (b.for_file ? " · file: " + esc(b.for_file) : "") +
-      (b.needs_phlux ? " · needs PHLUX" : "") + (b.retry_later ? " · can be tried again later" : "") + "</div>" +
+      (b.needs_phlux ? " · needs PHLUX" : (b.asked_for_heather ? " · asked for PHLUX; Claude tries first" + (b.resolved ? "" : ", and anything only a person can do goes to PHLUX") : "")) + (b.retry_later ? " · can be tried again later" : "") + "</div>" +
       (b.resolved ? '<div class="subtle">Cleared by ' + esc(b.resolved_by) + " " + esc(b.resolved_la) + ": " + esc(b.resolution_note) + "</div>"
         : (canClear ? '<div class="actions"><input type="text" placeholder="What changed? (needed to clear it)" data-clear-note="' + esc(b.id) + '"><button class="small" data-clear="' + esc(b.id) + '">Clear this block</button></div>' : "")) +
       "</div>";
@@ -195,7 +195,7 @@
         REASONS.map(function (r) { return '<option value="' + r[0] + '">' + esc(r[1]) + "</option>"; }).join("") + "</select></label>" +
         (wanted.length ? '<label>Which file?<select name="for_file"><option value="">All of them</option>' + wanted.map(function (w) { return '<option value="' + esc(w.name) + '">' + esc(w.name) + "</option>"; }).join("") + "</select></label>" : "") +
         '<label>Your notes<textarea name="notes" rows="3" placeholder="What you tried and what you saw"></textarea></label>' +
-        '<label class="check"><input type="checkbox" name="needs_phlux" checked> This needs PHLUX (a login, an approval or a decision)</label>' +
+        '<label class="check"><input type="checkbox" name="needs_phlux" checked> I think this needs PHLUX (a login, an approval or a decision). Claude tries first; only what a person must do goes to PHLUX.</label>' +
         '<label class="check"><input type="checkbox" name="retry_later"> It can be tried again later</label>' +
         '<div class="actions"><button class="primary small" type="submit">Save the blocked report</button><button class="small" type="button" data-blockcancel="' + esc(i.task) + '">Cancel</button></div>' +
         '<p class="status" aria-live="polite"></p></form>';
