@@ -263,7 +263,7 @@
   }
   function stillLabel(b) {
     if (!b || b.days_still == null || b.column === "archive") return "";
-    if (b.asked_to_rule_at) return chip("No change in 7 days: sent to GovCon OS for a ruling " + shortDate(b.asked_to_rule_at, true), "Info");
+    if (b.asked_to_rule_at) return chip("Auto-Sent for Ruling " + shortDate(b.asked_to_rule_at, true), "Info");
     var d = b.days_still;
     var words = d < 1 ? "Changed today" : "No change in " + d + (b.since_first_copy ? " days or more" : (d === 1 ? " day" : " days"));
     return chip(words, d >= 7 ? "Low" : (d >= 4 ? "Medium" : "Info"));
